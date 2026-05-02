@@ -1,10 +1,12 @@
 --[[
     Axis Studios Smooth UI Library
-    Standalone Roblox Lua UI library with live dropdowns, labels, decimal sliders,
-    dual color picker support, tabs, groups, and a custom logo asset slot.
+    Standalone Roblox Lua UI library with live dropdowns, multi-dropdowns,
+    labels, decimal sliders, config saving, themes, dual color pickers,
+    tabs, groups, and a custom logo asset slot.
 ]]
 
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -14,7 +16,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.0.0"
+Axis.Version = "1.1.0"
 
 local WindowClass = {}
 WindowClass.__index = WindowClass
@@ -28,18 +30,64 @@ GroupClass.__index = GroupClass
 local DEFAULT_LOGO = "rbxassetid://95355489476446"
 
 local DEFAULT_THEME = {
-    Background = Color3.fromRGB(16, 17, 17),
-    Panel = Color3.fromRGB(23, 24, 23),
-    Surface = Color3.fromRGB(31, 32, 30),
-    SurfaceHover = Color3.fromRGB(39, 41, 38),
-    SurfacePress = Color3.fromRGB(45, 47, 43),
-    Accent = Color3.fromRGB(112, 235, 180),
-    AccentSoft = Color3.fromRGB(57, 92, 76),
-    AccentWarm = Color3.fromRGB(255, 190, 104),
-    Text = Color3.fromRGB(245, 247, 242),
-    Muted = Color3.fromRGB(154, 160, 150),
-    Border = Color3.fromRGB(65, 69, 62),
+    Background = Color3.fromRGB(13, 15, 15),
+    Panel = Color3.fromRGB(19, 22, 21),
+    Surface = Color3.fromRGB(27, 30, 29),
+    SurfaceHover = Color3.fromRGB(35, 39, 37),
+    SurfacePress = Color3.fromRGB(43, 48, 45),
+    Accent = Color3.fromRGB(100, 230, 175),
+    AccentSoft = Color3.fromRGB(43, 84, 69),
+    AccentWarm = Color3.fromRGB(255, 192, 108),
+    Text = Color3.fromRGB(245, 248, 244),
+    Muted = Color3.fromRGB(151, 160, 153),
+    Border = Color3.fromRGB(55, 62, 58),
     Shadow = Color3.fromRGB(0, 0, 0)
+}
+
+Axis.Themes = {
+    Axis = DEFAULT_THEME,
+    Graphite = {
+        Background = Color3.fromRGB(12, 13, 14),
+        Panel = Color3.fromRGB(19, 20, 22),
+        Surface = Color3.fromRGB(28, 29, 32),
+        SurfaceHover = Color3.fromRGB(38, 40, 44),
+        SurfacePress = Color3.fromRGB(47, 50, 55),
+        Accent = Color3.fromRGB(118, 210, 255),
+        AccentSoft = Color3.fromRGB(43, 75, 92),
+        AccentWarm = Color3.fromRGB(255, 198, 116),
+        Text = Color3.fromRGB(245, 247, 249),
+        Muted = Color3.fromRGB(154, 160, 168),
+        Border = Color3.fromRGB(58, 62, 68),
+        Shadow = Color3.fromRGB(0, 0, 0)
+    },
+    Bloom = {
+        Background = Color3.fromRGB(15, 14, 14),
+        Panel = Color3.fromRGB(23, 21, 20),
+        Surface = Color3.fromRGB(32, 29, 27),
+        SurfaceHover = Color3.fromRGB(42, 38, 35),
+        SurfacePress = Color3.fromRGB(51, 46, 42),
+        Accent = Color3.fromRGB(255, 146, 126),
+        AccentSoft = Color3.fromRGB(93, 58, 51),
+        AccentWarm = Color3.fromRGB(255, 214, 121),
+        Text = Color3.fromRGB(249, 246, 240),
+        Muted = Color3.fromRGB(164, 155, 146),
+        Border = Color3.fromRGB(69, 61, 55),
+        Shadow = Color3.fromRGB(0, 0, 0)
+    },
+    Mint = {
+        Background = Color3.fromRGB(10, 16, 15),
+        Panel = Color3.fromRGB(16, 25, 23),
+        Surface = Color3.fromRGB(23, 36, 33),
+        SurfaceHover = Color3.fromRGB(31, 47, 43),
+        SurfacePress = Color3.fromRGB(39, 58, 52),
+        Accent = Color3.fromRGB(104, 240, 189),
+        AccentSoft = Color3.fromRGB(42, 91, 72),
+        AccentWarm = Color3.fromRGB(255, 197, 118),
+        Text = Color3.fromRGB(241, 249, 245),
+        Muted = Color3.fromRGB(145, 162, 154),
+        Border = Color3.fromRGB(50, 70, 63),
+        Shadow = Color3.fromRGB(0, 0, 0)
+    }
 }
 
 local function cloneTheme(theme)
@@ -94,6 +142,114 @@ local function toHex(color)
 
     return string.format("#%02X%02X%02X", r, g, b)
 end
+
+local function colorClose(a, b)
+    if typeof(a) ~= "Color3" or typeof(b) ~= "Color3" then
+        return false
+    end
+
+    return math.abs(a.R - b.R) < 0.004
+        and math.abs(a.G - b.G) < 0.004
+        and math.abs(a.B - b.B) < 0.004
+end
+
+local function resolveThemeSpec(theme, fallbackName)
+    local themeName = fallbackName or "Axis"
+    local source = Axis.Themes.Axis
+
+    if type(theme) == "string" and Axis.Themes[theme] then
+        themeName = theme
+        source = Axis.Themes[theme]
+    elseif type(theme) == "table" then
+        source = theme
+        themeName = theme.Name or fallbackName or "Custom"
+    end
+
+    local result = cloneTheme(source)
+
+    for key, fallback in pairs(DEFAULT_THEME) do
+        result[key] = resolveColor(result[key], fallback)
+    end
+
+    return result, themeName
+end
+
+local function sanitizeName(name)
+    name = tostring(name or "default")
+    name = name:gsub("[^%w%-%_ ]", "")
+    name = name:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if name == "" then
+        return "default"
+    end
+
+    return name
+end
+
+local function fileApiReady()
+    return type(writefile) == "function"
+        and type(readfile) == "function"
+        and type(isfile) == "function"
+end
+
+local function ensureFolder(path)
+    if type(makefolder) ~= "function" then
+        return
+    end
+
+    local current = ""
+
+    for part in tostring(path):gmatch("[^/]+") do
+        current = current == "" and part or (current .. "/" .. part)
+
+        if type(isfolder) ~= "function" or not isfolder(current) then
+            pcall(makefolder, current)
+        end
+    end
+end
+
+local function readJson(path)
+    if not fileApiReady() or not isfile(path) then
+        return nil
+    end
+
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(readfile(path))
+    end)
+
+    if ok and type(decoded) == "table" then
+        return decoded
+    end
+
+    return nil
+end
+
+local function writeJson(path, data)
+    if not fileApiReady() then
+        return false
+    end
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+
+    if not ok then
+        return false
+    end
+
+    ensureFolder(path:match("^(.*)/[^/]+$") or "")
+    return pcall(writefile, path, encoded)
+end
+
+local function deleteFile(path)
+    if type(delfile) == "function" and fileApiReady() and isfile(path) then
+        return pcall(delfile, path)
+    end
+
+    return false
+end
+
+local MEMORY_CONFIGS = {}
 
 local function asset(value)
     if type(value) == "number" then
@@ -166,11 +322,46 @@ local function padding(left, top, right, bottom)
     })
 end
 
-local function tween(instance, props, duration)
+local ACTIVE_TWEENS = setmetatable({}, { __mode = "k" })
+
+local function tween(instance, props, duration, style)
+    if not instance or not instance.Parent then
+        return nil
+    end
+
+    local active = ACTIVE_TWEENS[instance]
+
+    if not active then
+        active = {}
+        ACTIVE_TWEENS[instance] = active
+    end
+
+    for property in pairs(props) do
+        if active[property] then
+            pcall(function()
+                active[property]:Cancel()
+            end)
+        end
+    end
+
     local ok, result = pcall(function()
-        local info = TweenInfo.new(duration or 0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        local info = TweenInfo.new(duration or 0.24, style or Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
         local activeTween = TweenService:Create(instance, info, props)
+
+        for property in pairs(props) do
+            active[property] = activeTween
+        end
+
         activeTween:Play()
+
+        activeTween.Completed:Connect(function()
+            for property in pairs(props) do
+                if active[property] == activeTween then
+                    active[property] = nil
+                end
+            end
+        end)
+
         return activeTween
     end)
 
@@ -222,47 +413,85 @@ local function getParent()
     return LocalPlayer:WaitForChild("PlayerGui")
 end
 
-local function makeDraggable(handle, frame)
+local function lerpNumber(a, b, t)
+    return a + (b - a) * t
+end
+
+local function lerpUDim2(a, b, t)
+    return UDim2.new(
+        lerpNumber(a.X.Scale, b.X.Scale, t),
+        lerpNumber(a.X.Offset, b.X.Offset, t),
+        lerpNumber(a.Y.Scale, b.Y.Scale, t),
+        lerpNumber(a.Y.Offset, b.Y.Offset, t)
+    )
+end
+
+local function nearUDim2(a, b)
+    return math.abs(a.X.Scale - b.X.Scale) < 0.0001
+        and math.abs(a.X.Offset - b.X.Offset) < 0.35
+        and math.abs(a.Y.Scale - b.Y.Scale) < 0.0001
+        and math.abs(a.Y.Offset - b.Y.Offset) < 0.35
+end
+
+local function makeDraggable(handle, frame, tracker)
     local dragging = false
     local dragInput
     local dragStart
     local startPosition
+    local targetPosition = frame.Position
 
-    handle.InputBegan:Connect(function(input)
+    local function track(connection)
+        if tracker and tracker._track then
+            return tracker:_track(connection)
+        end
+
+        return connection
+    end
+
+    track(handle.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
 
         dragging = true
         dragStart = input.Position
-        startPosition = frame.Position
+        startPosition = targetPosition
 
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
             end
         end)
-    end)
+    end))
 
-    handle.InputChanged:Connect(function(input)
+    track(handle.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
         end
-    end)
+    end))
 
-    UserInputService.InputChanged:Connect(function(input)
+    track(UserInputService.InputChanged:Connect(function(input)
         if input ~= dragInput or not dragging then
             return
         end
 
         local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
+        targetPosition = UDim2.new(
             startPosition.X.Scale,
             startPosition.X.Offset + delta.X,
             startPosition.Y.Scale,
             startPosition.Y.Offset + delta.Y
         )
-    end)
+    end))
+
+    track(RunService.RenderStepped:Connect(function(dt)
+        if nearUDim2(frame.Position, targetPosition) then
+            frame.Position = targetPosition
+            return
+        end
+
+        frame.Position = lerpUDim2(frame.Position, targetPosition, math.clamp(dt * 20, 0, 1))
+    end))
 end
 
 local function bindCanvas(scrollFrame, layout)
@@ -378,6 +607,305 @@ function WindowClass:Destroy()
     if self.Gui then
         self.Gui:Destroy()
     end
+end
+
+function WindowClass:GetThemes()
+    local names = {}
+
+    for name in pairs(Axis.Themes) do
+        table.insert(names, name)
+    end
+
+    table.sort(names)
+    return names
+end
+
+function WindowClass:SetTheme(theme, noSave)
+    local previous = cloneTheme(self.Theme)
+    local nextTheme, themeName = resolveThemeSpec(theme, self.ThemeName)
+
+    local function remap(color)
+        for token, previousColor in pairs(previous) do
+            if nextTheme[token] and colorClose(color, previousColor) then
+                return nextTheme[token]
+            end
+        end
+
+        return color
+    end
+
+    self.Theme = nextTheme
+    self.ThemeName = themeName
+
+    for _, object in ipairs(self.Root:GetDescendants()) do
+        if object:IsA("GuiObject") then
+            if typeof(object.BackgroundColor3) == "Color3" then
+                object.BackgroundColor3 = remap(object.BackgroundColor3)
+            end
+
+            if object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox") then
+                object.TextColor3 = remap(object.TextColor3)
+            end
+
+            if object:IsA("ImageLabel") or object:IsA("ImageButton") then
+                object.ImageColor3 = remap(object.ImageColor3)
+            end
+
+            if object:IsA("ScrollingFrame") then
+                object.ScrollBarImageColor3 = remap(object.ScrollBarImageColor3)
+            end
+        elseif object:IsA("UIStroke") then
+            object.Color = remap(object.Color)
+        end
+    end
+
+    self.Root.BackgroundColor3 = nextTheme.Background
+    self:SetAccent(nextTheme.Accent)
+
+    if not noSave then
+        self:_queueAutoSave()
+    end
+end
+
+function WindowClass:_configFolder()
+    return sanitizeName(self.ConfigFolder or "AxisStudios") .. "/" .. sanitizeName(self.ConfigId or self.Title or "Axis Studios")
+end
+
+function WindowClass:_configPath(name)
+    return self:_configFolder() .. "/" .. sanitizeName(name or self.ActiveConfig or "default") .. ".json"
+end
+
+function WindowClass:SetAutoSave(state)
+    self.AutoSave = state and true or false
+
+    if self.AutoSave then
+        self:SaveConfig(self.ActiveConfig)
+    end
+end
+
+function WindowClass:_queueAutoSave()
+    if self._loadingConfig or not self.AutoSave then
+        return
+    end
+
+    if self._saveQueued then
+        return
+    end
+
+    self._saveQueued = true
+
+    task.delay(0.3, function()
+        if not self.Gui or not self.Gui.Parent then
+            return
+        end
+
+        self._saveQueued = false
+        self:SaveConfig(self.ActiveConfig)
+    end)
+end
+
+function WindowClass:_serializeControl(entry)
+    local object = entry.Object
+
+    if not object then
+        return nil
+    end
+
+    if entry.Kind == "ColorPicker" and object.GetColor then
+        return {
+            Color = toHex(object:GetColor()),
+            Rainbow = object.Rainbow == true
+        }
+    end
+
+    if entry.Kind == "Keybind" and object.GetKey then
+        local key = object:GetKey()
+        return key and key.Name or nil
+    end
+
+    if object.GetValue then
+        return object:GetValue()
+    end
+
+    return nil
+end
+
+function WindowClass:_applyControlValue(entry, value)
+    local object = entry.Object
+
+    if not object then
+        return
+    end
+
+    if entry.Kind == "ColorPicker" then
+        local color = type(value) == "table" and value.Color or value
+
+        if object.SetColor and color then
+            object:SetColor(color, true)
+        end
+
+        if type(value) == "table" and value.Rainbow ~= nil and object.SetRainbow then
+            object:SetRainbow(value.Rainbow, true)
+        end
+
+        return
+    end
+
+    if entry.Kind == "Keybind" then
+        if object.SetKey then
+            object:SetKey(value, true)
+        end
+
+        return
+    end
+
+    if object.SetValue then
+        object:SetValue(value, true)
+    end
+end
+
+function WindowClass:_registerControl(config, kind, object)
+    if type(config) ~= "table" or config.Save == false or config.NoSave == true then
+        return object
+    end
+
+    local flag = config.Flag or config.SaveKey or config.Name or config.Title
+
+    if not flag then
+        return object
+    end
+
+    flag = tostring(flag)
+    local entry = {
+        Flag = flag,
+        Kind = kind,
+        Object = object
+    }
+
+    self.Flags[flag] = entry
+
+    if self.PendingValues and self.PendingValues[flag] ~= nil then
+        self._loadingConfig = true
+        self:_applyControlValue(entry, self.PendingValues[flag])
+        self.PendingValues[flag] = nil
+        self._loadingConfig = false
+    end
+
+    return object
+end
+
+function WindowClass:SaveConfig(name)
+    name = sanitizeName(name or self.ActiveConfig or "default")
+    self.ActiveConfig = name
+
+    local data = {
+        Library = Axis.Name,
+        Version = Axis.Version,
+        Theme = self.ThemeName or "Axis",
+        Accent = toHex(self.Theme.Accent),
+        AutoSave = self.AutoSave == true,
+        Values = {}
+    }
+
+    for flag, entry in pairs(self.Flags or {}) do
+        local value = self:_serializeControl(entry)
+
+        if value ~= nil then
+            data.Values[flag] = value
+        end
+    end
+
+    local path = self:_configPath(name)
+
+    if fileApiReady() then
+        return writeJson(path, data)
+    end
+
+    MEMORY_CONFIGS[path] = data
+    return true
+end
+
+function WindowClass:LoadConfig(name)
+    name = sanitizeName(name or self.ActiveConfig or "default")
+    local path = self:_configPath(name)
+    local data = readJson(path) or MEMORY_CONFIGS[path]
+
+    if type(data) ~= "table" then
+        return false
+    end
+
+    self.ActiveConfig = name
+    self._loadingConfig = true
+
+    if data.Theme then
+        self:SetTheme(data.Theme, true)
+    end
+
+    if data.Accent then
+        self:SetAccent(data.Accent)
+    end
+
+    if data.AutoSave ~= nil then
+        self.AutoSave = data.AutoSave == true
+    end
+
+    for flag, value in pairs(data.Values or {}) do
+        local entry = self.Flags and self.Flags[flag]
+
+        if entry then
+            self:_applyControlValue(entry, value)
+        else
+            self.PendingValues[flag] = value
+        end
+    end
+
+    self._loadingConfig = false
+    return true
+end
+
+function WindowClass:DeleteConfig(name)
+    name = sanitizeName(name or self.ActiveConfig or "default")
+    local path = self:_configPath(name)
+    MEMORY_CONFIGS[path] = nil
+    return deleteFile(path)
+end
+
+function WindowClass:ListConfigs()
+    local configs = {}
+    local folder = self:_configFolder()
+
+    if type(listfiles) == "function" and (type(isfolder) ~= "function" or isfolder(folder)) then
+        local ok, files = pcall(listfiles, folder)
+
+        if ok and type(files) == "table" then
+            for _, file in ipairs(files) do
+                local name = tostring(file):match("([^/\\]+)%.json$")
+
+                if name then
+                    table.insert(configs, name)
+                end
+            end
+        end
+    end
+
+    for path in pairs(MEMORY_CONFIGS) do
+        local prefix = folder .. "/"
+
+        if path:sub(1, #prefix) == prefix then
+            local name = path:match("([^/]+)%.json$")
+
+            if name and not table.find(configs, name) then
+                table.insert(configs, name)
+            end
+        end
+    end
+
+    if not table.find(configs, "default") then
+        table.insert(configs, "default")
+    end
+
+    table.sort(configs)
+    return configs
 end
 
 function WindowClass:CreateTab(config)
@@ -762,6 +1290,7 @@ function GroupClass:Toggle(config)
         if fire then
             safeCall(config.Callback, value)
             safeCall(config.Changed, value)
+            self.Window:_queueAutoSave()
         end
     end
 
@@ -800,7 +1329,7 @@ function GroupClass:Toggle(config)
     end)
 
     render(false)
-    return object
+    return self.Window:_registerControl(config, "Toggle", object)
 end
 
 function GroupClass:Label(config)
@@ -954,6 +1483,7 @@ function GroupClass:Slider(config)
         if fire then
             safeCall(config.Callback, value)
             safeCall(config.Changed, value)
+            self.Window:_queueAutoSave()
         end
     end
 
@@ -1008,14 +1538,16 @@ function GroupClass:Slider(config)
     end))
 
     render(false)
-    return object
+    return self.Window:_registerControl(config, "Slider", object)
 end
 
 function GroupClass:Dropdown(config)
     config = type(config) == "table" and config or {}
 
+    local multi = config.Multi == true or config.Multiple == true
     local options = {}
     local selected = nil
+    local selectedSet = {}
     local open = false
     local collapsedHeight = 62
     local optionHeight = 32
@@ -1128,17 +1660,89 @@ function GroupClass:Dropdown(config)
     local object = {
         Instance = row,
         Options = options,
-        Value = selected
+        Value = selected,
+        Multi = multi
     }
+
+    local function hasOption(value)
+        return table.find(options, value) ~= nil
+    end
+
+    local function addOption(value)
+        value = tostring(value)
+
+        if not hasOption(value) then
+            table.insert(options, value)
+        end
+
+        return value
+    end
+
+    local function selectedList()
+        local list = {}
+
+        for _, option in ipairs(options) do
+            if selectedSet[option] then
+                table.insert(list, option)
+            end
+        end
+
+        return list
+    end
+
+    local function isSelected(option)
+        if multi then
+            return selectedSet[option] == true
+        end
+
+        return option == selected
+    end
+
+    local function currentValue()
+        if multi then
+            return selectedList()
+        end
+
+        return selected
+    end
+
+    local function selectedCount()
+        if not multi then
+            return selected and 1 or 0
+        end
+
+        local count = 0
+
+        for _ in pairs(selectedSet) do
+            count = count + 1
+        end
+
+        return count
+    end
 
     local function menuHeight()
         return math.min(#options, maxVisible) * optionHeight + 10
     end
 
     local function updateSelectedText()
-        selectedText.Text = selected or (config.Placeholder or "Select")
-        selectedText.TextColor3 = selected and self.Window.Theme.Text or self.Window.Theme.Muted
-        object.Value = selected
+        local count = selectedCount()
+
+        if multi then
+            local list = selectedList()
+
+            if #list == 0 then
+                selectedText.Text = config.Placeholder or "Select"
+            elseif #list <= 2 then
+                selectedText.Text = table.concat(list, ", ")
+            else
+                selectedText.Text = list[1] .. ", " .. list[2] .. " +" .. tostring(#list - 2)
+            end
+        else
+            selectedText.Text = selected or (config.Placeholder or "Select")
+        end
+
+        selectedText.TextColor3 = count > 0 and self.Window.Theme.Text or self.Window.Theme.Muted
+        object.Value = currentValue()
     end
 
     local function setOpen(state)
@@ -1176,13 +1780,15 @@ function GroupClass:Dropdown(config)
         end
 
         for _, option in ipairs(options) do
+            local optionSelected = isSelected(option)
+
             local optionButton = create("TextButton", {
-                BackgroundColor3 = option == selected and self.Window.Theme.SurfaceHover or self.Window.Theme.Surface,
+                BackgroundColor3 = optionSelected and self.Window.Theme.SurfaceHover or self.Window.Theme.Surface,
                 BorderSizePixel = 0,
                 AutoButtonColor = false,
                 Font = Enum.Font.GothamMedium,
-                Text = option,
-                TextColor3 = option == selected and self.Window.Theme.Text or self.Window.Theme.Muted,
+                Text = multi and ((optionSelected and "[x] " or "[ ] ") .. option) or option,
+                TextColor3 = optionSelected and self.Window.Theme.Text or self.Window.Theme.Muted,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Size = UDim2.new(1, 0, 0, optionHeight - 4),
@@ -1201,18 +1807,33 @@ function GroupClass:Dropdown(config)
 
             optionButton.MouseLeave:Connect(function()
                 tween(optionButton, {
-                    BackgroundColor3 = option == selected and self.Window.Theme.SurfaceHover or self.Window.Theme.Surface,
-                    TextColor3 = option == selected and self.Window.Theme.Text or self.Window.Theme.Muted
+                    BackgroundColor3 = isSelected(option) and self.Window.Theme.SurfaceHover or self.Window.Theme.Surface,
+                    TextColor3 = isSelected(option) and self.Window.Theme.Text or self.Window.Theme.Muted
                 }, 0.12)
             end)
 
             optionButton.MouseButton1Click:Connect(function()
-                selected = option
+                if multi then
+                    if selectedSet[option] then
+                        selectedSet[option] = nil
+                    else
+                        selectedSet[option] = true
+                    end
+                else
+                    selected = option
+                end
+
                 updateSelectedText()
                 rebuild()
-                setOpen(false)
-                safeCall(config.Callback, selected)
-                safeCall(config.Changed, selected)
+
+                if not multi then
+                    setOpen(false)
+                end
+
+                local value = currentValue()
+                safeCall(config.Callback, value)
+                safeCall(config.Changed, value)
+                self.Window:_queueAutoSave()
             end)
         end
 
@@ -1225,6 +1846,7 @@ function GroupClass:Dropdown(config)
     end
 
     function object:SetOptions(newOptions, keepValue)
+        local oldSelection = multi and selectedList() or selected
         options = {}
 
         for _, option in ipairs(newOptions or {}) do
@@ -1233,7 +1855,19 @@ function GroupClass:Dropdown(config)
 
         self.Options = options
 
-        if not keepValue or (selected and not table.find(options, selected)) then
+        if multi then
+            selectedSet = {}
+
+            if keepValue and type(oldSelection) == "table" then
+                for _, option in ipairs(oldSelection) do
+                    option = tostring(option)
+
+                    if hasOption(option) then
+                        selectedSet[option] = true
+                    end
+                end
+            end
+        elseif not keepValue or (selected and not table.find(options, selected)) then
             selected = options[1]
         end
 
@@ -1265,18 +1899,30 @@ function GroupClass:Dropdown(config)
     end
 
     function object:SetValue(newValue, noCallback)
-        selected = tostring(newValue)
+        if multi then
+            selectedSet = {}
 
-        if not table.find(options, selected) then
-            table.insert(options, selected)
+            if type(newValue) == "table" then
+                for _, option in ipairs(newValue) do
+                    option = addOption(option)
+                    selectedSet[option] = true
+                end
+            elseif newValue ~= nil then
+                local option = addOption(newValue)
+                selectedSet[option] = true
+            end
+        else
+            selected = newValue ~= nil and addOption(newValue) or nil
         end
 
         updateSelectedText()
         rebuild()
 
         if not noCallback then
-            safeCall(config.Callback, selected)
-            safeCall(config.Changed, selected)
+            local value = currentValue()
+            safeCall(config.Callback, value)
+            safeCall(config.Changed, value)
+            self.Window:_queueAutoSave()
         end
     end
 
@@ -1285,7 +1931,7 @@ function GroupClass:Dropdown(config)
     end
 
     function object:GetValue()
-        return selected
+        return currentValue()
     end
 
     selector.MouseButton1Click:Connect(function()
@@ -1299,20 +1945,38 @@ function GroupClass:Dropdown(config)
         object:Refresh()
     end)
 
-    if type(config.Default) == "number" then
+    if multi then
+        local initial = config.Default or config.Value
+
+        if type(initial) == "table" then
+            for _, option in ipairs(initial) do
+                option = addOption(option)
+                selectedSet[option] = true
+            end
+        elseif initial ~= nil then
+            local option = addOption(initial)
+            selectedSet[option] = true
+        end
+    elseif type(config.Default) == "number" then
         selected = options[config.Default] or options[1]
     else
         selected = config.Default or config.Value or options[1]
     end
 
-    if selected then
+    if selected and not multi then
         selected = tostring(selected)
     end
 
     updateSelectedText()
     rebuild()
 
-    return object
+    return self.Window:_registerControl(config, multi and "MultiDropdown" or "Dropdown", object)
+end
+
+function GroupClass:MultiDropdown(config)
+    config = type(config) == "table" and config or {}
+    config.Multi = true
+    return self:Dropdown(config)
 end
 
 function GroupClass:Keybind(config)
@@ -1396,6 +2060,7 @@ function GroupClass:Keybind(config)
         if not noCallback then
             safeCall(config.Changed, currentKey)
             safeCall(config.OnBinded or config.OnBound, currentKey)
+            self.Window:_queueAutoSave()
         end
     end
 
@@ -1432,6 +2097,7 @@ function GroupClass:Keybind(config)
                 render()
                 safeCall(config.Changed, currentKey)
                 safeCall(config.OnBinded or config.OnBound, currentKey)
+                self.Window:_queueAutoSave()
             end
 
             return
@@ -1447,7 +2113,7 @@ function GroupClass:Keybind(config)
     end))
 
     render()
-    return object
+    return self.Window:_registerControl(config, "Keybind", object)
 end
 
 function GroupClass:ColorPicker(config)
@@ -1665,6 +2331,7 @@ function GroupClass:ColorPicker(config)
         if fire then
             safeCall(config.Callback, color, object)
             safeCall(config.Changed, color, object)
+            window:_queueAutoSave()
         end
     end
 
@@ -1690,7 +2357,7 @@ function GroupClass:ColorPicker(config)
         return color
     end
 
-    function object:SetRainbow(state)
+    function object:SetRainbow(state, noCallback)
         rainbow = state and true or false
         object.Rainbow = rainbow
 
@@ -1713,6 +2380,10 @@ function GroupClass:ColorPicker(config)
                 hue = (hue + dt * (config.RainbowSpeed or 0.15)) % 1
                 applyColor(true)
             end))
+        end
+
+        if not noCallback then
+            window:_queueAutoSave()
         end
     end
 
@@ -1764,19 +2435,139 @@ function GroupClass:ColorPicker(config)
     applyColor(false)
 
     if config.Rainbow == true or config.DefaultRainbow == true then
-        object:SetRainbow(true)
+        object:SetRainbow(true, true)
     end
 
-    return object
+    return self.Window:_registerControl(config, "ColorPicker", object)
 end
+
+function WindowClass:AddThemesTab(config)
+    config = type(config) == "table" and config or {}
+
+    local tab = self:Tab({
+        Name = config.Name or "Themes",
+        Icon = config.Icon or "10734950309"
+    })
+
+    local themeGroup = tab:Group({
+        Name = config.ThemeGroupName or "Theme"
+    })
+
+    local status = themeGroup:Label({
+        Text = "Theme: " .. tostring(self.ThemeName or "Axis")
+    })
+
+    local themeDropdown = themeGroup:Dropdown({
+        Name = "Theme Preset",
+        Options = self:GetThemes(),
+        Default = self.ThemeName or "Axis",
+        Save = false,
+        Callback = function(value)
+            self:SetTheme(value)
+            status:SetText("Theme: " .. tostring(value))
+        end
+    })
+
+    themeGroup:ColorPicker({
+        Name = "Accent Color",
+        Default = self.Theme.Accent,
+        Save = false,
+        Callback = function(color)
+            self:SetAccent(color)
+            status:SetText("Accent: " .. toHex(color))
+            self:_queueAutoSave()
+        end
+    })
+
+    local configGroup = tab:Group({
+        Name = config.ConfigGroupName or "Configuration"
+    })
+
+    local configStatus = configGroup:Label({
+        Text = "Config: " .. tostring(self.ActiveConfig or "default")
+    })
+
+    local autoSaveToggle
+    local configDropdown
+    local function configOptions()
+        local list = self:ListConfigs()
+
+        for _, name in ipairs(config.Slots or { "default", "slot-1", "slot-2", "slot-3" }) do
+            if not table.find(list, name) then
+                table.insert(list, name)
+            end
+        end
+
+        table.sort(list)
+        return list
+    end
+
+    autoSaveToggle = configGroup:Toggle({
+        Name = "Auto Save",
+        Default = self.AutoSave == true,
+        Save = false,
+        Callback = function(enabled)
+            self:SetAutoSave(enabled)
+            configStatus:SetText("Auto Save: " .. (enabled and "On" or "Off"))
+        end
+    })
+
+    configDropdown = configGroup:Dropdown({
+        Name = "Saved Configs",
+        Options = configOptions(),
+        Default = self.ActiveConfig or "default",
+        Save = false,
+        Refresh = function()
+            return configOptions()
+        end,
+        Callback = function(value)
+            self.ActiveConfig = value or "default"
+            configStatus:SetText("Config: " .. tostring(self.ActiveConfig))
+        end
+    })
+
+    configGroup:Button({
+        Name = "Save Config",
+        Text = "Save",
+        Callback = function()
+            self:SaveConfig(configDropdown:GetValue() or self.ActiveConfig or "default")
+            configDropdown:Refresh(configOptions())
+            configStatus:SetText("Saved: " .. tostring(self.ActiveConfig))
+        end
+    })
+
+    configGroup:Button({
+        Name = "Load Config",
+        Text = "Load",
+        Callback = function()
+            local target = configDropdown:GetValue() or self.ActiveConfig or "default"
+            local loaded = self:LoadConfig(target)
+
+            autoSaveToggle:SetValue(self.AutoSave, true)
+            themeDropdown:SetValue(self.ThemeName or "Axis", true)
+            configStatus:SetText((loaded and "Loaded: " or "Missing: ") .. tostring(target))
+        end
+    })
+
+    configGroup:Button({
+        Name = "Refresh Configs",
+        Text = "Refresh",
+        Callback = function()
+            configDropdown:Refresh(configOptions())
+            configStatus:SetText("Config list refreshed")
+        end
+    })
+
+    return tab
+end
+
+WindowClass.ThemesTab = WindowClass.AddThemesTab
+WindowClass.ConfigTab = WindowClass.AddThemesTab
 
 function Axis:CreateWindow(config)
     config = type(config) == "table" and config or {}
 
-    local theme = cloneTheme(config.Theme)
-    for key, fallback in pairs(DEFAULT_THEME) do
-        theme[key] = resolveColor(theme[key], fallback)
-    end
+    local theme, themeName = resolveThemeSpec(config.Theme or config.ThemeName, "Axis")
 
     local title = config.Title or config.Name or Axis.Name
     local subtitle = config.Subtitle or config.SubTitle or "Smooth UI Library"
@@ -1946,14 +2737,21 @@ function Axis:CreateWindow(config)
         TitleLabel = titleLabel,
         SubtitleLabel = subtitleLabel,
         Theme = theme,
+        ThemeName = themeName,
         Tabs = {},
         Connections = {},
         AccentTargets = {},
+        Flags = {},
+        PendingValues = {},
         Visible = true,
-        ToggleKey = resolveKeyCode(config.ToggleKey or config.Keybind, Enum.KeyCode.RightControl)
+        ToggleKey = resolveKeyCode(config.ToggleKey or config.Keybind, Enum.KeyCode.RightControl),
+        ConfigFolder = config.ConfigFolder or "AxisStudios",
+        ConfigId = config.ConfigId or title,
+        ActiveConfig = sanitizeName(config.ConfigName or config.DefaultConfig or "default"),
+        AutoSave = config.AutoSave == true
     }, WindowClass)
 
-    makeDraggable(topBar, root)
+    makeDraggable(topBar, root, window)
     addScalePress(close, close)
 
     close.MouseEnter:Connect(function()
@@ -1989,6 +2787,10 @@ function Axis:CreateWindow(config)
     tween(root, { BackgroundTransparency = 0 }, 0.22)
     tween(rootScale, { Scale = 1 }, 0.22)
 
+    if config.AutoLoad == true then
+        window:LoadConfig(window.ActiveConfig)
+    end
+
     return window
 end
 
@@ -1999,7 +2801,11 @@ function Axis:Demo()
     local window = self:CreateWindow({
         Title = "Axis Studios",
         Subtitle = "Live smooth UI library",
-        Icon = DEFAULT_LOGO
+        Icon = DEFAULT_LOGO,
+        AutoSave = true,
+        AutoLoad = true,
+        ConfigFolder = "AxisStudios",
+        ConfigId = "Axis Studios Demo"
     })
 
     local elements = window:Tab({
@@ -2026,6 +2832,7 @@ function Axis:Demo()
 
     main:Toggle({
         Name = "Live Toggle",
+        Flag = "LiveToggle",
         Default = false,
         Callback = function(enabled)
             liveLabel:SetText("Toggle: " .. (enabled and "On" or "Off"))
@@ -2034,6 +2841,7 @@ function Axis:Demo()
 
     main:Keybind({
         Name = "Action Keybind",
+        Flag = "ActionKeybind",
         Key = Enum.KeyCode.F,
         Callback = function(key)
             liveLabel:SetText("Pressed keybind: " .. key.Name)
@@ -2045,6 +2853,7 @@ function Axis:Demo()
 
     main:Slider({
         Name = "Decimal Slider",
+        Flag = "DecimalSlider",
         Min = 0,
         Max = 10,
         Default = 2.5,
@@ -2058,6 +2867,7 @@ function Axis:Demo()
 
     main:Dropdown({
         Name = "Refreshable Dropdown",
+        Flag = "RefreshableDropdown",
         Options = dropdownOptions,
         Default = "Alpha",
         Refresh = function()
@@ -2070,8 +2880,19 @@ function Axis:Demo()
         end
     })
 
+    main:MultiDropdown({
+        Name = "Multi Dropdown",
+        Flag = "MultiDropdown",
+        Options = { "Speed", "Jump", "ESP", "Farm" },
+        Default = { "Speed", "ESP" },
+        Callback = function(values)
+            liveLabel:SetText("Multi selected: " .. table.concat(values, ", "))
+        end
+    })
+
     main:ColorPicker({
         Name = "Primary Color",
+        Flag = "PrimaryColor",
         Default = DEFAULT_THEME.Accent,
         Rainbow = false,
         Callback = function(color)
@@ -2082,6 +2903,7 @@ function Axis:Demo()
 
     main:ColorPicker({
         Name = "Second Color",
+        Flag = "SecondColor",
         Default = DEFAULT_THEME.AccentWarm,
         Callback = function(color)
             liveLabel:SetColor(color)
@@ -2109,6 +2931,8 @@ function Axis:Demo()
             window:SelectTab(elements)
         end
     })
+
+    window:AddThemesTab()
 
     return window
 end
