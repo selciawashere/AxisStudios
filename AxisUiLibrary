@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.7"
+Axis.Version = "1.6.0"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -558,6 +558,16 @@ y = top + (size.Y * anchor.Y)
 return UDim2.fromOffset(x, y)
 end
 
+local function pointInFrame(frame, position)
+local topLeft = frame.AbsolutePosition
+local size = frame.AbsoluteSize
+
+return position.X >= topLeft.X
+    and position.X <= topLeft.X + size.X
+    and position.Y >= topLeft.Y
+    and position.Y <= topLeft.Y + size.Y
+end
+
 local function makeDraggable(handle, frame, tracker, clampToScreen)
 local dragging = false
 local dragInput
@@ -574,8 +584,12 @@ local function track(connection)
     return connection
 end
 
-track(handle.InputBegan:Connect(function(input)
+local function beginDrag(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        return
+    end
+
+    if dragging then
         return
     end
 
@@ -590,7 +604,21 @@ track(handle.InputBegan:Connect(function(input)
             dragging = false
         end
     end)
-end))
+end
+
+track(handle.InputBegan:Connect(beginDrag))
+
+if handle == frame then
+    track(UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        if pointInFrame(frame, input.Position) then
+            beginDrag(input)
+        end
+    end))
+end
 
 track(handle.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
@@ -599,7 +627,11 @@ track(handle.InputChanged:Connect(function(input)
 end))
 
 track(UserInputService.InputChanged:Connect(function(input)
-    if input ~= dragInput or not dragging then
+    if not dragging then
+        return
+    end
+
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
         return
     end
 
@@ -893,6 +925,131 @@ end
 
 function WindowClass:Toggle()
 self:SetVisible(not self.Visible)
+end
+
+function WindowClass:_windowBounds(sizeOverride)
+local viewport = getViewportSize()
+local size = sizeOverride and getOffsetSize(sizeOverride, self.Root.AbsoluteSize) or self.Root.AbsoluteSize
+local position = self.Root.Position
+local anchor = self.Root.AnchorPoint or Vector2.new(0.5, 0.5)
+local x = position.X.Scale * viewport.X + position.X.Offset
+local y = position.Y.Scale * viewport.Y + position.Y.Offset
+
+return {
+    Left = x - (size.X * anchor.X),
+    Top = y - (size.Y * anchor.Y),
+    Right = x + (size.X * (1 - anchor.X)),
+    Bottom = y + (size.Y * (1 - anchor.Y)),
+    Width = size.X,
+    Height = size.Y
+}
+end
+
+function WindowClass:IsOutOfRange(paddingAmount)
+paddingAmount = paddingAmount or 8
+
+if not self.Root or not self.Root.Parent or not self.Root.Visible then
+    return false
+end
+
+local viewport = getViewportSize()
+local bounds = self:_windowBounds(self.Minimized and self.MinimizedSize or nil)
+local minVisible = math.min(120, math.max(64, bounds.Width * 0.3))
+
+if bounds.Right < paddingAmount + minVisible then
+    return true
+end
+
+if bounds.Left > viewport.X - paddingAmount - minVisible then
+    return true
+end
+
+if bounds.Bottom < paddingAmount + 44 then
+    return true
+end
+
+if bounds.Top > viewport.Y - paddingAmount - 44 then
+    return true
+end
+
+return bounds.Left < -paddingAmount
+    or bounds.Right > viewport.X + paddingAmount
+    or bounds.Top < -paddingAmount
+    or bounds.Bottom > viewport.Y + paddingAmount
+end
+
+function WindowClass:ResetPosition(animated)
+if not self.Root then
+    return
+end
+
+self.Visible = true
+self.Minimized = false
+self.Root.Visible = true
+
+local targetSize = self.FullSize or self.Root.Size
+local targetPosition = clampToViewport(self.Root, UDim2.fromScale(0.5, 0.5), self.IsMobile and 12 or 16, targetSize)
+
+if animated == false then
+    self.Root.Size = targetSize
+    self.Root.Position = targetPosition
+else
+    tween(self.Root, {
+        Size = targetSize,
+        Position = targetPosition
+    }, 0.32)
+end
+
+self:_setBodyVisible(true)
+self:_refreshMinimizeVisual(false)
+self.OutOfRangeNotified = false
+end
+
+function WindowClass:_notifyOutOfRange()
+if self.OutOfRangeNotified or self.BoundsNotification == false then
+    return
+end
+
+self.OutOfRangeNotified = true
+self:Notify({
+    Title = "UI out of range",
+    Description = "The window is outside the safe screen area.",
+    Type = "Warning",
+    Duration = 10,
+    ActionText = "Reset UI Position",
+    ActionCallback = function()
+        self:ResetPosition()
+    end
+})
+
+task.delay(10.5, function()
+    if self:IsOutOfRange(self.IsMobile and 12 or 16) then
+        self.OutOfRangeNotified = false
+    end
+end)
+end
+
+function WindowClass:_startBoundsWatcher()
+if self.BoundsWatcher then
+    return
+end
+
+local elapsed = 0
+self.BoundsWatcher = self:_track(RunService.Heartbeat:Connect(function(dt)
+    elapsed = elapsed + dt
+
+    if elapsed < 0.5 then
+        return
+    end
+
+    elapsed = 0
+
+    if self:IsOutOfRange(self.IsMobile and 12 or 16) then
+        self:_notifyOutOfRange()
+    else
+        self.OutOfRangeNotified = false
+    end
+end))
 end
 
 function WindowClass:_refreshMinimizeVisual(hovered)
@@ -1258,7 +1415,9 @@ local title = tostring(config.Title or config.Name or "Notification")
 local description = tostring(config.Description or config.Desc or config.Text or config.Message or "")
 local duration = tonumber(config.Duration or config.Lifetime or 3.2) or 3.2
 local accent = resolveColor(config.Color, self:_notificationColor(config.Type))
-local height = description ~= "" and 78 or 58
+local actionText = config.ActionText or config.ButtonText or config.Button or config.Action
+local hasAction = type(actionText) == "string" and actionText ~= ""
+local height = description ~= "" and (hasAction and 112 or 78) or (hasAction and 92 or 58)
 
 local holder = create("Frame", {
     BackgroundTransparency = 1,
@@ -1329,6 +1488,34 @@ local descLabel = create("TextLabel", {
     Parent = card
 })
 
+local actionButton
+local actionStroke
+
+if hasAction then
+    actionButton = create("TextButton", {
+        AutoButtonColor = false,
+        BackgroundColor3 = accent,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Font = Enum.Font.GothamBold,
+        Text = actionText,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 12,
+        TextTransparency = 1,
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -12, 0, description ~= "" and 63 or 40),
+        Size = UDim2.fromOffset(132, 28),
+        ZIndex = 1805,
+        Parent = card
+    }, {
+        corner(10)
+    })
+
+    actionStroke = stroke(accent, 1, 1)
+    actionStroke.Parent = actionButton
+    addScalePress(actionButton, actionButton)
+end
+
 local progressBack = create("Frame", {
     BackgroundColor3 = self.Theme.Surface,
     BackgroundTransparency = 1,
@@ -1373,6 +1560,15 @@ local function closeNotification()
     tween(stripe, { BackgroundTransparency = 1 }, 0.18)
     tween(titleLabel, { TextTransparency = 1 }, 0.18)
     tween(descLabel, { TextTransparency = 1 }, 0.18)
+    if actionButton then
+        tween(actionButton, {
+            BackgroundTransparency = 1,
+            TextTransparency = 1
+        }, 0.16)
+    end
+    if actionStroke then
+        tween(actionStroke, { Transparency = 1 }, 0.16)
+    end
     tween(progressBack, { BackgroundTransparency = 1 }, 0.16)
     tween(progress, { BackgroundTransparency = 1 }, 0.16)
     tween(scale, { Scale = 0.96 }, 0.24)
@@ -1398,6 +1594,15 @@ task.defer(function()
     tween(stripe, { BackgroundTransparency = 0 }, 0.28)
     tween(titleLabel, { TextTransparency = 0 }, 0.24)
     tween(descLabel, { TextTransparency = 0 }, 0.24)
+    if actionButton then
+        tween(actionButton, {
+            BackgroundTransparency = 0,
+            TextTransparency = 0
+        }, 0.24)
+    end
+    if actionStroke then
+        tween(actionStroke, { Transparency = 0.25 }, 0.24)
+    end
     tween(progressBack, { BackgroundTransparency = 0 }, 0.26)
     tween(progress, {
         BackgroundTransparency = 0,
@@ -1406,11 +1611,32 @@ task.defer(function()
     tween(scale, { Scale = 1 }, 0.34)
 end)
 
-card.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+if actionButton then
+    actionButton.MouseEnter:Connect(function()
+        tween(actionButton, {
+            BackgroundColor3 = self.Theme.SurfaceHover,
+            TextColor3 = accent
+        }, 0.16)
+    end)
+
+    actionButton.MouseLeave:Connect(function()
+        tween(actionButton, {
+            BackgroundColor3 = accent,
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        }, 0.16)
+    end)
+
+    actionButton.MouseButton1Click:Connect(function()
+        safeCall(config.ActionCallback or config.OnAction or config.Callback, self)
         closeNotification()
-    end
-end)
+    end)
+elseif config.CloseOnClick ~= false then
+    card.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            closeNotification()
+        end
+    end)
+end
 
 task.delay(duration, closeNotification)
 
@@ -3843,6 +4069,7 @@ local window = setmetatable({
     MinimizeCustomAccent = config.MinimizeColor ~= nil or config.MinimizeAccent ~= nil or config.MinimizeHoverColor ~= nil,
     IsMobile = isMobile,
     AutoScale = config.AutoScale ~= false,
+    BoundsNotification = config.BoundsNotification ~= false,
     TabWidth = tabWidth,
     ToggleKey = resolveKeyCode(config.ToggleKey or config.Keybind, Enum.KeyCode.RightControl),
     ConfigFolder = config.ConfigFolder or "AxisStudios",
@@ -3929,7 +4156,7 @@ if config.FloatingToggle ~= false then
     window.ToggleIcon = toggleIcon
 end
 
-makeDraggable(topBar, root, window, true)
+makeDraggable(config.FullWindowDrag == false and topBar or root, root, window, true)
 addScalePress(minimize, minimize)
 addScalePress(close, close)
 
@@ -4024,6 +4251,8 @@ close.MouseButton1Click:Connect(function()
     }, 0.14)
     window:SetVisible(false)
 end)
+
+window:_startBoundsWatcher()
 
 window:_track(UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
