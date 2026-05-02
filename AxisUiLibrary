@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.0"
+Axis.Version = "1.5.1"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -478,6 +478,15 @@ return math.abs(a.X.Scale - b.X.Scale) < 0.0001
     and math.abs(a.Y.Offset - b.Y.Offset) < 0.35
 end
 
+local function keepTopPosition(position, fromSize, toSize)
+return UDim2.new(
+    position.X.Scale,
+    position.X.Offset,
+    position.Y.Scale + ((toSize.Y.Scale - fromSize.Y.Scale) * 0.5),
+    position.Y.Offset + ((toSize.Y.Offset - fromSize.Y.Offset) * 0.5)
+)
+end
+
 local function clampToViewport(frame, position, paddingAmount)
 local viewport = getViewportSize()
 local size = frame.AbsoluteSize
@@ -790,7 +799,7 @@ function WindowClass:_updateResponsiveScale(animated)
 if self.AutoScale == false then
     self.BaseScale = 1
 else
-    self.BaseScale = getFitScale(self.Root.Size, self.IsMobile and 22 or 36)
+    self.BaseScale = getFitScale(self.FullSize or self.Root.Size, self.IsMobile and 22 or 36)
 end
 
 self:_setScaledVisibilityScale(self.Visible and 1 or 0.94, animated and 0.18 or 0.01)
@@ -817,6 +826,124 @@ end
 function WindowClass:Toggle()
 self:SetVisible(not self.Visible)
 end
+
+function WindowClass:_refreshMinimizeVisual(hovered)
+local activeTheme = self.Theme or DEFAULT_THEME
+local active = hovered or self.Minimized
+local accent = self.MinimizeCustomAccent and self.MinimizeAccent or activeTheme.Accent
+
+if self.MinimizeButton then
+    tween(self.MinimizeButton, {
+        BackgroundColor3 = hovered and activeTheme.SurfaceHover or (self.Minimized and activeTheme.AccentSoft or activeTheme.Surface),
+        BackgroundTransparency = active and 0 or 0.08
+    }, 0.2)
+end
+
+if self.MinimizeStroke then
+    tween(self.MinimizeStroke, {
+        Color = active and accent or activeTheme.Border,
+        Transparency = active and 0.18 or 0.52,
+        Thickness = active and 1.2 or 1
+    }, 0.2)
+end
+
+if self.MinimizeGlow then
+    tween(self.MinimizeGlow, {
+        BackgroundColor3 = accent,
+        BackgroundTransparency = hovered and 0.78 or (self.Minimized and 0.88 or 1)
+    }, 0.2)
+end
+
+if self.MinimizeIcon then
+    tween(self.MinimizeIcon, {
+        Rotation = self.Minimized and 180 or 0
+    }, 0.28)
+end
+
+if self.MinimizeLineH then
+    tween(self.MinimizeLineH, {
+        BackgroundColor3 = active and accent or activeTheme.Muted,
+        Size = UDim2.fromOffset(active and 16 or 14, 2)
+    }, 0.18)
+end
+
+if self.MinimizeLineV then
+    tween(self.MinimizeLineV, {
+        BackgroundColor3 = active and accent or activeTheme.Muted,
+        BackgroundTransparency = self.Minimized and 0 or 1
+    }, 0.18)
+end
+end
+
+function WindowClass:SetMinimized(state)
+local minimized = state and true or false
+
+if self.Minimized == minimized then
+    return
+end
+
+self.Minimized = minimized
+
+if not self.Visible then
+    self.Visible = true
+    self.Root.Visible = true
+end
+
+local duration = minimized and 0.3 or 0.36
+local targetSize = minimized and self.MinimizedSize or (self.FullSize or self.Root.Size)
+local targetPosition = keepTopPosition(self.Root.Position, self.Root.Size, targetSize)
+
+if not minimized then
+    if self.TabRail then
+        self.TabRail.Visible = true
+    end
+
+    if self.SelectedTab and self.SelectedTab.Page then
+        self.SelectedTab.Page.Visible = true
+    end
+end
+
+tween(self.Root, {
+    Size = targetSize,
+    Position = targetPosition
+}, duration)
+
+self:_refreshMinimizeVisual(false)
+
+task.delay(duration * 0.72, function()
+    if not self.Minimized then
+        return
+    end
+
+    if self.TabRail then
+        self.TabRail.Visible = false
+    end
+
+    for _, tab in ipairs(self.Tabs or {}) do
+        if tab.Page then
+            tab.Page.Visible = false
+        end
+    end
+end)
+end
+
+function WindowClass:ToggleMinimized()
+self:SetMinimized(not self.Minimized)
+end
+
+function WindowClass:Minimize(state)
+if state == nil then
+    state = true
+end
+
+self:SetMinimized(state)
+end
+
+function WindowClass:Restore()
+self:SetMinimized(false)
+end
+
+WindowClass.Maximize = WindowClass.Restore
 
 function WindowClass:_playLoadingIntro(config)
 config = type(config) == "table" and config or {}
@@ -3402,7 +3529,7 @@ local titleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 10),
-    Size = UDim2.new(1, -132, 0, 24),
+    Size = UDim2.new(1, -174, 0, 24),
     Parent = topBar
 })
 
@@ -3416,8 +3543,84 @@ local subtitleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 32),
-    Size = UDim2.new(1, -132, 0, 18),
+    Size = UDim2.new(1, -174, 0, 18),
     Parent = topBar
+})
+
+local minimizeAccent = resolveColor(config.MinimizeColor or config.MinimizeAccent or config.MinimizeHoverColor, theme.Accent)
+local minimize = create("TextButton", {
+    Name = "Minimize",
+    BackgroundColor3 = theme.Surface,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    AutoButtonColor = false,
+    Text = "",
+    TextTransparency = 1,
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -54, 0, 12),
+    Size = UDim2.fromOffset(34, 34),
+    ZIndex = 8,
+    Parent = topBar
+}, {
+    corner(13)
+})
+
+local minimizeStroke = stroke(theme.Border, 0.52, 1)
+minimizeStroke.Parent = minimize
+
+local minimizeGlow = create("Frame", {
+    Name = "HoverGlow",
+    Active = false,
+    BackgroundColor3 = minimizeAccent,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(5, 5),
+    Size = UDim2.new(1, -10, 1, -10),
+    ZIndex = 9,
+    Parent = minimize
+}, {
+    corner(10)
+})
+
+local minimizeIcon = create("Frame", {
+    Name = "Icon",
+    Active = false,
+    BackgroundTransparency = 1,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(16, 16),
+    ZIndex = 10,
+    Parent = minimize
+})
+
+local minimizeLineH = create("Frame", {
+    Name = "Horizontal",
+    Active = false,
+    BackgroundColor3 = theme.Muted,
+    BorderSizePixel = 0,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(14, 2),
+    ZIndex = 11,
+    Parent = minimizeIcon
+}, {
+    corner(2)
+})
+
+local minimizeLineV = create("Frame", {
+    Name = "Vertical",
+    Active = false,
+    BackgroundColor3 = theme.Muted,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(2, 14),
+    ZIndex = 11,
+    Parent = minimizeIcon
+}, {
+    corner(2)
 })
 
 local closeAccent = resolveColor(config.CloseColor or config.CloseAccent or config.CloseHoverColor, Axis.NotificationColors.Error)
@@ -3531,6 +3734,7 @@ local window = setmetatable({
     RootScale = rootScale,
     TabList = tabList,
     TopBar = topBar,
+    TabRail = tabRail,
     Title = title,
     Subtitle = subtitle,
     TitleLabel = titleLabel,
@@ -3543,6 +3747,17 @@ local window = setmetatable({
     Flags = {},
     PendingValues = {},
     Visible = true,
+    Minimized = false,
+    FullSize = windowSize,
+    MinimizedSize = config.MinimizedSize or UDim2.new(windowSize.X.Scale, windowSize.X.Offset, 0, config.MinimizedHeight or 58),
+    MinimizeButton = minimize,
+    MinimizeStroke = minimizeStroke,
+    MinimizeGlow = minimizeGlow,
+    MinimizeIcon = minimizeIcon,
+    MinimizeLineH = minimizeLineH,
+    MinimizeLineV = minimizeLineV,
+    MinimizeAccent = minimizeAccent,
+    MinimizeCustomAccent = config.MinimizeColor ~= nil or config.MinimizeAccent ~= nil or config.MinimizeHoverColor ~= nil,
     IsMobile = isMobile,
     AutoScale = config.AutoScale ~= false,
     TabWidth = tabWidth,
@@ -3632,7 +3847,27 @@ if config.FloatingToggle ~= false then
 end
 
 makeDraggable(topBar, root, window)
+addScalePress(minimize, minimize)
 addScalePress(close, close)
+
+local minimizeHovering = false
+
+minimize.MouseEnter:Connect(function()
+    minimizeHovering = true
+    window:_refreshMinimizeVisual(true)
+end)
+
+minimize.MouseLeave:Connect(function()
+    minimizeHovering = false
+    window:_refreshMinimizeVisual(false)
+end)
+
+minimize.MouseButton1Click:Connect(function()
+    window:ToggleMinimized()
+    task.defer(function()
+        window:_refreshMinimizeVisual(minimizeHovering)
+    end)
+end)
 
 local function setCloseHover(hovered)
     local activeTheme = window.Theme or theme
