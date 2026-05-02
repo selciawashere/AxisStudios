@@ -3402,7 +3402,7 @@ local titleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 10),
-    Size = UDim2.new(1, -118, 0, 24),
+    Size = UDim2.new(1, -132, 0, 24),
     Parent = topBar
 })
 
@@ -3416,26 +3416,85 @@ local subtitleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 32),
-    Size = UDim2.new(1, -118, 0, 18),
+    Size = UDim2.new(1, -132, 0, 18),
     Parent = topBar
 })
 
+local closeAccent = resolveColor(config.CloseColor or config.CloseAccent or config.CloseHoverColor, Axis.NotificationColors.Error)
 local close = create("TextButton", {
     Name = "Close",
     BackgroundColor3 = theme.Surface,
+    BackgroundTransparency = 0.08,
     BorderSizePixel = 0,
+    ClipsDescendants = true,
     AutoButtonColor = false,
-    Font = Enum.Font.GothamBold,
-    Text = "x",
-    TextColor3 = theme.Muted,
-    TextSize = 13,
+    Text = "",
+    TextTransparency = 1,
     AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16, 0, 17),
-    Size = UDim2.fromOffset(26, 26),
+    Position = UDim2.new(1, -14, 0, 12),
+    Size = UDim2.fromOffset(34, 34),
+    ZIndex = 8,
     Parent = topBar
 }, {
-    corner(10),
-    stroke(theme.Border, 0.55, 1)
+    corner(13)
+})
+
+local closeStroke = stroke(theme.Border, 0.52, 1)
+closeStroke.Parent = close
+
+local closeGlow = create("Frame", {
+    Name = "HoverGlow",
+    Active = false,
+    BackgroundColor3 = closeAccent,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(5, 5),
+    Size = UDim2.new(1, -10, 1, -10),
+    ZIndex = 9,
+    Parent = close
+}, {
+    corner(10)
+})
+
+local closeIcon = create("Frame", {
+    Name = "Icon",
+    Active = false,
+    BackgroundTransparency = 1,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(16, 16),
+    ZIndex = 10,
+    Parent = close
+})
+
+local closeLineA = create("Frame", {
+    Name = "LineA",
+    Active = false,
+    BackgroundColor3 = theme.Muted,
+    BorderSizePixel = 0,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Rotation = 45,
+    Size = UDim2.fromOffset(14, 2),
+    ZIndex = 11,
+    Parent = closeIcon
+}, {
+    corner(2)
+})
+
+local closeLineB = create("Frame", {
+    Name = "LineB",
+    Active = false,
+    BackgroundColor3 = theme.Muted,
+    BorderSizePixel = 0,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Rotation = -45,
+    Size = UDim2.fromOffset(14, 2),
+    ZIndex = 11,
+    Parent = closeIcon
+}, {
+    corner(2)
 })
 
 local tabRail = create("Frame", {
@@ -3575,21 +3634,76 @@ end
 makeDraggable(topBar, root, window)
 addScalePress(close, close)
 
-close.MouseEnter:Connect(function()
+local function setCloseHover(hovered)
+    local activeTheme = window.Theme or theme
+
+    if hovered then
+        tween(close, {
+            BackgroundColor3 = activeTheme.SurfaceHover,
+            BackgroundTransparency = 0
+        }, 0.22)
+        tween(closeStroke, {
+            Color = closeAccent,
+            Transparency = 0.16,
+            Thickness = 1.25
+        }, 0.22)
+        tween(closeGlow, {
+            BackgroundTransparency = 0.72
+        }, 0.2)
+        tween(closeIcon, {
+            Rotation = 90
+        }, 0.32)
+        tween(closeLineA, {
+            BackgroundColor3 = closeAccent,
+            Size = UDim2.fromOffset(16, 2)
+        }, 0.2)
+        tween(closeLineB, {
+            BackgroundColor3 = closeAccent,
+            Size = UDim2.fromOffset(16, 2)
+        }, 0.2)
+        return
+    end
+
     tween(close, {
-        BackgroundColor3 = theme.SurfaceHover,
-        TextColor3 = theme.Text
-    }, 0.12)
+        BackgroundColor3 = activeTheme.Surface,
+        BackgroundTransparency = 0.08
+    }, 0.2)
+    tween(closeStroke, {
+        Color = activeTheme.Border,
+        Transparency = 0.52,
+        Thickness = 1
+    }, 0.2)
+    tween(closeGlow, {
+        BackgroundTransparency = 1
+    }, 0.18)
+    tween(closeIcon, {
+        Rotation = 0
+    }, 0.28)
+    tween(closeLineA, {
+        BackgroundColor3 = activeTheme.Muted,
+        Size = UDim2.fromOffset(14, 2)
+    }, 0.18)
+    tween(closeLineB, {
+        BackgroundColor3 = activeTheme.Muted,
+        Size = UDim2.fromOffset(14, 2)
+    }, 0.18)
+end
+
+close.MouseEnter:Connect(function()
+    setCloseHover(true)
 end)
 
 close.MouseLeave:Connect(function()
-    tween(close, {
-        BackgroundColor3 = theme.Surface,
-        TextColor3 = theme.Muted
-    }, 0.12)
+    setCloseHover(false)
 end)
 
 close.MouseButton1Click:Connect(function()
+    tween(closeGlow, {
+        BackgroundTransparency = 0.58
+    }, 0.1)
+    tween(closeIcon, {
+        Rotation = 135
+    }, 0.14)
     window:SetVisible(false)
 end)
 
