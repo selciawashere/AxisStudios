@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.1.0"
+Axis.Version = "1.2.0"
 
 local WindowClass = {}
 WindowClass.__index = WindowClass
@@ -633,6 +633,146 @@ self.Subtitle = tostring(text or "")
 self.SubtitleLabel.Text = self.Subtitle
 end
 
+function WindowClass:_fadeTargets()
+local targets = {}
+local seen = setmetatable({}, { __mode = "k" })
+
+local function add(instance, property)
+    if not instance or not instance.Parent then
+        return
+    end
+
+    seen[instance] = seen[instance] or {}
+
+    if seen[instance][property] then
+        return
+    end
+
+    seen[instance][property] = true
+    table.insert(targets, {
+        Instance = instance,
+        Property = property
+    })
+end
+
+local function scan(instance)
+    if instance:IsA("GuiObject") then
+        add(instance, "BackgroundTransparency")
+
+        if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+            add(instance, "TextTransparency")
+        end
+
+        if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then
+            add(instance, "ImageTransparency")
+        end
+
+        if instance:IsA("ScrollingFrame") then
+            add(instance, "ScrollBarImageTransparency")
+        end
+    elseif instance:IsA("UIStroke") then
+        add(instance, "Transparency")
+    end
+end
+
+scan(self.Root)
+
+for _, child in ipairs(self.Root:GetDescendants()) do
+    scan(child)
+end
+
+return targets
+end
+
+function WindowClass:_captureFadeState()
+self.FadeCache = self.FadeCache or setmetatable({}, { __mode = "k" })
+
+for _, target in ipairs(self:_fadeTargets()) do
+    local instance = target.Instance
+    local property = target.Property
+    self.FadeCache[instance] = self.FadeCache[instance] or {}
+
+    if instance[property] ~= nil then
+        self.FadeCache[instance][property] = instance[property]
+    end
+end
+end
+
+function WindowClass:_setDissolved()
+for _, target in ipairs(self:_fadeTargets()) do
+    local instance = target.Instance
+    local property = target.Property
+
+    if instance[property] ~= nil then
+        instance[property] = 1
+    end
+end
+end
+
+function WindowClass:_dissolveVisible(state, instant)
+local visible = state and true or false
+local duration = instant and 0.01 or (visible and 0.46 or 0.34)
+
+if visible then
+    self.Root.Visible = true
+    local fadeTargets = self:_fadeTargets()
+    local fallbackFinals = setmetatable({}, { __mode = "k" })
+
+    for _, target in ipairs(fadeTargets) do
+        fallbackFinals[target.Instance] = fallbackFinals[target.Instance] or {}
+        fallbackFinals[target.Instance][target.Property] = target.Instance[target.Property]
+    end
+
+    if not self.FadeCache then
+        self:_captureFadeState()
+    end
+
+    self:_setDissolved()
+    self:_setScaledVisibilityScale(0.965, 0.01)
+
+    task.defer(function()
+        for index, target in ipairs(fadeTargets) do
+            local instance = target.Instance
+            local property = target.Property
+            local cached = self.FadeCache and self.FadeCache[instance]
+            local fallback = fallbackFinals[instance]
+            local finalValue = cached and cached[property] or (fallback and fallback[property]) or 0
+
+            task.delay(math.min(index * 0.0015, 0.07), function()
+                if instance and instance.Parent then
+                    tween(instance, {
+                        [property] = finalValue
+                    }, duration)
+                end
+            end)
+        end
+    end)
+else
+    self:_captureFadeState()
+
+    for index, target in ipairs(self:_fadeTargets()) do
+        local instance = target.Instance
+        local property = target.Property
+
+        task.delay(math.min(index * 0.001, 0.05), function()
+            if instance and instance.Parent then
+                tween(instance, {
+                    [property] = 1
+                }, duration)
+            end
+        end)
+    end
+
+    task.delay(duration + 0.08, function()
+        if not self.Visible then
+            self.Root.Visible = false
+        end
+    end)
+end
+
+self:_setScaledVisibilityScale(visible and 1 or 0.935, duration)
+end
+
 function WindowClass:_setScaledVisibilityScale(multiplier, duration)
 tween(self.RootScale, {
     Scale = (self.BaseScale or 1) * (multiplier or 1)
@@ -651,35 +791,207 @@ end
 
 function WindowClass:SetVisible(state)
 self.Visible = state and true or false
-self:_setScaledVisibilityScale(self.Visible and 1 or 0.94, 0.16)
-tween(self.Root, {
-    BackgroundTransparency = self.Visible and 0 or 1
-}, 0.16)
+self:_dissolveVisible(self.Visible)
 
 if self.ToggleButton then
     tween(self.ToggleButton, {
         BackgroundColor3 = self.Visible and self.Theme.AccentSoft or self.Theme.Panel
-    }, 0.18)
+    }, 0.24)
 end
 
 if self.ToggleIcon then
     tween(self.ToggleIcon, {
         ImageColor3 = self.Visible and self.Theme.Accent or self.Theme.Text,
-        Rotation = self.Visible and 0 or -8
-    }, 0.18)
-end
-
-task.delay(self.Visible and 0 or 0.16, function()
-    self.Root.Visible = self.Visible
-end)
-
-if self.Visible then
-    self.Root.Visible = true
+        Rotation = self.Visible and 0 or -12
+    }, 0.24)
 end
 end
 
 function WindowClass:Toggle()
 self:SetVisible(not self.Visible)
+end
+
+function WindowClass:_playLoadingIntro(config)
+config = type(config) == "table" and config or {}
+
+local duration = tonumber(config.LoadingDuration or config.IntroDuration or 1.45) or 1.45
+local iconId = asset(config.LoadingIcon or config.ToggleIcon or config.Icon or config.Logo or DEFAULT_LOGO)
+local steps = config.LoadingSteps or { "Assets", "Theme", "Controls", "Configs", "Ready" }
+local overlay = create("Frame", {
+    Name = "AxisLoadingIntro",
+    BackgroundColor3 = self.Theme.Background,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Size = UDim2.fromScale(1, 1),
+    ZIndex = 2000,
+    Parent = self.Gui
+})
+
+local center = create("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundTransparency = 1,
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(260, 190),
+    ZIndex = 2001,
+    Parent = overlay
+})
+
+local iconBack = create("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    BackgroundColor3 = self.Theme.Panel,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0.5, 0, 0, 0),
+    Size = UDim2.fromOffset(72, 72),
+    ZIndex = 2002,
+    Parent = center
+})
+
+corner(24).Parent = iconBack
+
+local iconStroke = stroke(self.Theme.Border, 1, 1)
+iconStroke.Parent = iconBack
+
+local iconScale = create("UIScale", {
+    Scale = 0.88,
+    Parent = iconBack
+})
+
+local icon = create("ImageLabel", {
+    BackgroundTransparency = 1,
+    Image = iconId,
+    ImageColor3 = self.Theme.Accent,
+    ImageTransparency = 1,
+    Position = UDim2.fromOffset(14, 14),
+    Size = UDim2.fromOffset(44, 44),
+    ZIndex = 2003,
+    Parent = iconBack
+})
+
+local title = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    Text = self.Title or Axis.Name,
+    TextColor3 = self.Theme.Text,
+    TextSize = 18,
+    TextTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    Position = UDim2.fromOffset(0, 90),
+    Size = UDim2.new(1, 0, 0, 24),
+    ZIndex = 2002,
+    Parent = center
+})
+
+local status = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamMedium,
+    Text = "Loading",
+    TextColor3 = self.Theme.Muted,
+    TextSize = 12,
+    TextTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    Position = UDim2.fromOffset(0, 116),
+    Size = UDim2.new(1, 0, 0, 20),
+    ZIndex = 2002,
+    Parent = center
+})
+
+local track = create("Frame", {
+    BackgroundColor3 = self.Theme.Surface,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(26, 150),
+    Size = UDim2.new(1, -52, 0, 8),
+    ZIndex = 2002,
+    Parent = center
+}, {
+    corner(8)
+})
+
+local fill = create("Frame", {
+    BackgroundColor3 = self.Theme.Accent,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Size = UDim2.fromScale(0, 1),
+    ZIndex = 2003,
+    Parent = track
+}, {
+    corner(8)
+})
+
+local percent = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    Text = "0%",
+    TextColor3 = self.Theme.Accent,
+    TextSize = 12,
+    TextTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    Position = UDim2.fromOffset(0, 164),
+    Size = UDim2.new(1, 0, 0, 18),
+    ZIndex = 2002,
+    Parent = center
+})
+
+local function fadeLoaderOut()
+    tween(overlay, { BackgroundTransparency = 1 }, 0.34)
+    tween(iconBack, { BackgroundTransparency = 1 }, 0.34)
+    tween(iconStroke, { Transparency = 1 }, 0.34)
+    tween(icon, { ImageTransparency = 1 }, 0.34)
+    tween(title, { TextTransparency = 1 }, 0.28)
+    tween(status, { TextTransparency = 1 }, 0.24)
+    tween(track, { BackgroundTransparency = 1 }, 0.28)
+    tween(fill, { BackgroundTransparency = 1 }, 0.28)
+    tween(percent, { TextTransparency = 1 }, 0.24)
+    tween(iconScale, { Scale = 0.82 }, 0.34)
+
+    task.delay(0.36, function()
+        if overlay then
+            overlay:Destroy()
+        end
+    end)
+end
+
+task.spawn(function()
+    tween(overlay, { BackgroundTransparency = 0.05 }, 0.28)
+    tween(iconBack, { BackgroundTransparency = 0 }, 0.3)
+    tween(iconStroke, { Transparency = 0.35 }, 0.3)
+    tween(icon, { ImageTransparency = 0 }, 0.3)
+    tween(title, { TextTransparency = 0 }, 0.28)
+    tween(status, { TextTransparency = 0 }, 0.28)
+    tween(track, { BackgroundTransparency = 0 }, 0.28)
+    tween(fill, { BackgroundTransparency = 0 }, 0.28)
+    tween(percent, { TextTransparency = 0 }, 0.28)
+    tween(iconScale, { Scale = 1 }, 0.38)
+
+    local stepDuration = duration / math.max(#steps, 1)
+
+    for index, stepName in ipairs(steps) do
+        local progress = index / #steps
+        status.Text = tostring(stepName)
+        percent.Text = tostring(math.floor(progress * 100 + 0.5)) .. "%"
+        tween(fill, { Size = UDim2.fromScale(progress, 1) }, math.max(stepDuration * 0.82, 0.12))
+        tween(iconScale, { Scale = index % 2 == 0 and 1.04 or 0.98 }, stepDuration * 0.5)
+        task.wait(stepDuration)
+    end
+
+    status.Text = "Ready"
+    percent.Text = "100%"
+    tween(fill, { Size = UDim2.fromScale(1, 1) }, 0.16)
+    tween(iconScale, { Scale = 1.06 }, 0.18)
+    task.wait(0.16)
+
+    fadeLoaderOut()
+    self:_captureFadeState()
+    self:_dissolveVisible(true)
+
+    if self.ToggleButton then
+        self.ToggleButton.Visible = true
+        tween(self.ToggleButton, { BackgroundTransparency = 0 }, 0.24)
+    end
+end)
+
+return overlay
 end
 
 function WindowClass:Destroy()
@@ -2962,10 +3274,11 @@ window:_track(UserInputService.InputBegan:Connect(function(input, processed)
     end
 end))
 
-window:_updateResponsiveScale(false)
+    root.Visible = false
+    window:_updateResponsiveScale(false)
 
-local camera = Workspace.CurrentCamera
-if camera then
+    local camera = Workspace.CurrentCamera
+    if camera then
     window:_track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
         window:_updateResponsiveScale(true)
 
@@ -2975,16 +3288,23 @@ if camera then
     end))
 end
 
-root.BackgroundTransparency = 1
-rootScale.Scale = (window.BaseScale or 1) * 0.96
-tween(root, { BackgroundTransparency = 0 }, 0.22)
-window:_setScaledVisibilityScale(1, 0.22)
+    if config.AutoLoad == true then
+        window:LoadConfig(window.ActiveConfig)
+    end
 
-if config.AutoLoad == true then
-    window:LoadConfig(window.ActiveConfig)
-end
+    if config.LoadingIntro ~= false then
+        if window.ToggleButton then
+            window.ToggleButton.Visible = false
+            window.ToggleButton.BackgroundTransparency = 1
+        end
 
-return window
+        window:_playLoadingIntro(config)
+    else
+        window:_captureFadeState()
+        window:_dissolveVisible(true)
+    end
+
+    return window
 end
 
 Axis.Window = Axis.CreateWindow
