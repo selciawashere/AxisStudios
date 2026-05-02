@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.1"
+Axis.Version = "1.5.2"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -487,16 +487,37 @@ return UDim2.new(
 )
 end
 
-local function clampToViewport(frame, position, paddingAmount)
+local function clampToViewport(frame, position, paddingAmount, sizeOverride)
 local viewport = getViewportSize()
-local size = frame.AbsoluteSize
+local size = sizeOverride and getOffsetSize(sizeOverride, frame.AbsoluteSize) or frame.AbsoluteSize
+local scale = 1
 paddingAmount = paddingAmount or 8
+
+if frame:FindFirstChildOfClass("UIScale") then
+    scale = frame:FindFirstChildOfClass("UIScale").Scale
+end
+
+size = Vector2.new(size.X * scale, size.Y * scale)
 
 local x = position.X.Scale * viewport.X + position.X.Offset
 local y = position.Y.Scale * viewport.Y + position.Y.Offset
+local anchor = frame.AnchorPoint or Vector2.new(0, 0)
+local minX = paddingAmount + (size.X * anchor.X)
+local maxX = viewport.X - paddingAmount - (size.X * (1 - anchor.X))
+local minY = paddingAmount + (size.Y * anchor.Y)
+local maxY = viewport.Y - paddingAmount - (size.Y * (1 - anchor.Y))
 
-x = math.clamp(x, paddingAmount, math.max(paddingAmount, viewport.X - size.X - paddingAmount))
-y = math.clamp(y, paddingAmount, math.max(paddingAmount, viewport.Y - size.Y - paddingAmount))
+if minX > maxX then
+    x = viewport.X * 0.5
+else
+    x = math.clamp(x, minX, maxX)
+end
+
+if minY > maxY then
+    y = viewport.Y * 0.5
+else
+    y = math.clamp(y, minY, maxY)
+end
 
 return UDim2.fromOffset(x, y)
 end
@@ -507,6 +528,7 @@ local dragInput
 local dragStart
 local startPosition
 local targetPosition = frame.Position
+local settling = false
 
 local function track(connection)
     if tracker and tracker._track then
@@ -522,8 +544,10 @@ track(handle.InputBegan:Connect(function(input)
     end
 
     dragging = true
+    settling = true
     dragStart = input.Position
-    startPosition = targetPosition
+    targetPosition = frame.Position
+    startPosition = frame.Position
 
     input.Changed:Connect(function()
         if input.UserInputState == Enum.UserInputState.End then
@@ -557,8 +581,16 @@ track(UserInputService.InputChanged:Connect(function(input)
 end))
 
 track(RunService.RenderStepped:Connect(function(dt)
+    if not dragging and not settling then
+        targetPosition = frame.Position
+        return
+    end
+
     if nearUDim2(frame.Position, targetPosition) then
         frame.Position = targetPosition
+        if not dragging then
+            settling = false
+        end
         return
     end
 
@@ -892,6 +924,7 @@ end
 local duration = minimized and 0.3 or 0.36
 local targetSize = minimized and self.MinimizedSize or (self.FullSize or self.Root.Size)
 local targetPosition = keepTopPosition(self.Root.Position, self.Root.Size, targetSize)
+targetPosition = clampToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize)
 
 if not minimized then
     if self.TabRail then
@@ -3846,7 +3879,7 @@ if config.FloatingToggle ~= false then
     window.ToggleIcon = toggleIcon
 end
 
-makeDraggable(topBar, root, window)
+makeDraggable(topBar, root, window, true)
 addScalePress(minimize, minimize)
 addScalePress(close, close)
 
@@ -3959,6 +3992,12 @@ end))
     if camera then
     window:_track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
         window:_updateResponsiveScale(true)
+        window.Root.Position = clampToViewport(
+            window.Root,
+            window.Root.Position,
+            window.IsMobile and 12 or 16,
+            window.Minimized and window.MinimizedSize or window.FullSize
+        )
 
         if window.ToggleButton then
             window.ToggleButton.Position = clampToViewport(window.ToggleButton, window.ToggleButton.Position, 10)
