@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.4"
+Axis.Version = "1.5.5"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -482,13 +482,27 @@ return math.abs(a.X.Scale - b.X.Scale) < 0.0001
     and math.abs(a.Y.Offset - b.Y.Offset) < 0.35
 end
 
-local function keepTopPosition(position, fromSize, toSize)
-return UDim2.new(
-    position.X.Scale,
-    position.X.Offset,
-    position.Y.Scale + ((toSize.Y.Scale - fromSize.Y.Scale) * 0.5),
-    position.Y.Offset + ((toSize.Y.Offset - fromSize.Y.Offset) * 0.5)
-)
+local function keepCollapseEdgePosition(frame, position, fromSize, toSize)
+local viewport = getViewportSize()
+local anchor = frame.AnchorPoint or Vector2.new(0.5, 0.5)
+local fromOffset = getOffsetSize(fromSize, frame.AbsoluteSize)
+local toOffset = getOffsetSize(toSize, frame.AbsoluteSize)
+local x = position.X.Scale * viewport.X + position.X.Offset
+local y = position.Y.Scale * viewport.Y + position.Y.Offset
+local keepRight = x >= viewport.X * 0.5
+
+if keepRight then
+    local right = x + (fromOffset.X * (1 - anchor.X))
+    x = right - (toOffset.X * (1 - anchor.X))
+else
+    local left = x - (fromOffset.X * anchor.X)
+    x = left + (toOffset.X * anchor.X)
+end
+
+local top = y - (fromOffset.Y * anchor.Y)
+y = top + (toOffset.Y * anchor.Y)
+
+return UDim2.fromOffset(x, y)
 end
 
 local function clampToViewport(frame, position, paddingAmount, sizeOverride)
@@ -515,6 +529,32 @@ if minY > maxY then
 else
     y = math.clamp(y, minY, maxY)
 end
+
+return UDim2.fromOffset(x, y)
+end
+
+local function clampDropDownToViewport(frame, position, paddingAmount, sizeOverride, headerHeight)
+local viewport = getViewportSize()
+local size = sizeOverride and getOffsetSize(sizeOverride, frame.AbsoluteSize) or frame.AbsoluteSize
+local anchor = frame.AnchorPoint or Vector2.new(0, 0)
+paddingAmount = paddingAmount or 8
+headerHeight = headerHeight or 58
+
+local x = position.X.Scale * viewport.X + position.X.Offset
+local y = position.Y.Scale * viewport.Y + position.Y.Offset
+local minX = paddingAmount + (size.X * anchor.X)
+local maxX = viewport.X - paddingAmount - (size.X * (1 - anchor.X))
+local top = y - (size.Y * anchor.Y)
+local maxTop = viewport.Y - paddingAmount - headerHeight
+
+if minX > maxX then
+    x = viewport.X * 0.5
+else
+    x = math.clamp(x, minX, maxX)
+end
+
+top = math.clamp(top, paddingAmount, math.max(paddingAmount, maxTop))
+y = top + (size.Y * anchor.Y)
 
 return UDim2.fromOffset(x, y)
 end
@@ -920,8 +960,13 @@ end
 
 local duration = minimized and 0.3 or 0.36
 local targetSize = minimized and self.MinimizedSize or (self.FullSize or self.Root.Size)
-local targetPosition = keepTopPosition(self.Root.Position, self.Root.Size, targetSize)
-targetPosition = clampToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize)
+local targetPosition = keepCollapseEdgePosition(self.Root, self.Root.Position, self.Root.Size, targetSize)
+
+if minimized then
+    targetPosition = clampToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize)
+else
+    targetPosition = clampDropDownToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize, self.MinimizedHeight or 58)
+end
 
 if minimized then
     self:_setBodyVisible(false)
@@ -935,12 +980,12 @@ tween(self.Root, {
 self:_refreshMinimizeVisual(false)
 
 task.delay(duration * 0.82, function()
-    self.Root.Position = clampToViewport(
-        self.Root,
-        self.Root.Position,
-        self.IsMobile and 12 or 16,
-        self.Minimized and self.MinimizedSize or self.FullSize
-    )
+    if self.Minimized then
+        self.Root.Position = clampToViewport(self.Root, self.Root.Position, self.IsMobile and 12 or 16, self.MinimizedSize)
+    else
+        self.Root.Position = clampDropDownToViewport(self.Root, self.Root.Position, self.IsMobile and 12 or 16, self.FullSize, self.MinimizedHeight or 58)
+    end
+
     self:_setBodyVisible(not self.Minimized)
 end)
 end
@@ -3787,6 +3832,7 @@ local window = setmetatable({
     Minimized = false,
     FullSize = windowSize,
     MinimizedSize = minimizedSize,
+    MinimizedHeight = config.MinimizedHeight or 58,
     MinimizeButton = minimize,
     MinimizeStroke = minimizeStroke,
     MinimizeGlow = minimizeGlow,
@@ -3997,12 +4043,11 @@ end))
     if camera then
     window:_track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
         window:_updateResponsiveScale(true)
-        window.Root.Position = clampToViewport(
-            window.Root,
-            window.Root.Position,
-            window.IsMobile and 12 or 16,
-            window.Minimized and window.MinimizedSize or window.FullSize
-        )
+        if window.Minimized then
+            window.Root.Position = clampToViewport(window.Root, window.Root.Position, window.IsMobile and 12 or 16, window.MinimizedSize)
+        else
+            window.Root.Position = clampDropDownToViewport(window.Root, window.Root.Position, window.IsMobile and 12 or 16, window.FullSize, window.MinimizedHeight or 58)
+        end
 
         if window.ToggleButton then
             window.ToggleButton.Position = clampToViewport(window.ToggleButton, window.ToggleButton.Position, 10)
