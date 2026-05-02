@@ -1,8 +1,8 @@
 --[[
 Axis Studios Smooth UI Library
 Standalone Roblox Lua UI library with live dropdowns, multi-dropdowns,
-labels, decimal sliders, config saving, themes, dual color pickers,
-tabs, groups, and a custom logo asset slot.
+labels, decimal sliders, config saving, custom themes, notifications,
+dual color pickers, tabs, groups, and a custom logo asset slot.
 ]]
 
 local Players = game:GetService("Players")
@@ -17,7 +17,14 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.3.0"
+Axis.Version = "1.5.0"
+
+Axis.NotificationColors = {
+    Info = Color3.fromRGB(118, 210, 255),
+    Success = Color3.fromRGB(94, 230, 145),
+    Warning = Color3.fromRGB(255, 207, 92),
+    Error = Color3.fromRGB(255, 96, 96)
+}
 
 local WindowClass = {}
 WindowClass.__index = WindowClass
@@ -997,15 +1004,15 @@ end
 function WindowClass:_notificationColor(kind)
 kind = tostring(kind or "Info"):lower()
 
-if kind == "success" then
-    return self.Theme.Accent
-elseif kind == "warning" then
-    return self.Theme.AccentWarm
-elseif kind == "error" then
-    return Color3.fromRGB(255, 115, 115)
+if kind == "success" or kind == "successful" or kind == "ok" or kind == "done" then
+    return Axis.NotificationColors.Success
+elseif kind == "warning" or kind == "warn" or kind == "caution" then
+    return Axis.NotificationColors.Warning
+elseif kind == "error" or kind == "failed" or kind == "fail" or kind == "danger" or kind == "not working" or kind == "notworking" then
+    return Axis.NotificationColors.Error
 end
 
-return Color3.fromRGB(118, 210, 255)
+return Axis.NotificationColors.Info
 end
 
 function WindowClass:_ensureNotificationContainer()
@@ -1211,6 +1218,33 @@ end
 
 WindowClass.Notification = WindowClass.Notify
 
+function WindowClass:Success(config)
+config = type(config) == "table" and config or {
+    Description = tostring(config or "Success")
+}
+
+config.Type = "Success"
+return self:Notify(config)
+end
+
+function WindowClass:Warning(config)
+config = type(config) == "table" and config or {
+    Description = tostring(config or "Warning")
+}
+
+config.Type = "Warning"
+return self:Notify(config)
+end
+
+function WindowClass:Error(config)
+config = type(config) == "table" and config or {
+    Description = tostring(config or "Error")
+}
+
+config.Type = "Error"
+return self:Notify(config)
+end
+
 function WindowClass:Destroy()
 for _, connection in ipairs(self.Connections) do
     pcall(function()
@@ -1287,6 +1321,17 @@ end
 if not noSave then
     self:_queueAutoSave()
 end
+end
+
+function WindowClass:SetThemeColor(token, color, noSave)
+if DEFAULT_THEME[token] == nil then
+    return
+end
+
+local customTheme = cloneTheme(self.Theme)
+customTheme.Name = "Custom"
+customTheme[token] = resolveColor(color, customTheme[token])
+self:SetTheme(customTheme, noSave)
 end
 
 function WindowClass:_configFolder()
@@ -1420,17 +1465,24 @@ function WindowClass:SaveConfig(name)
 name = sanitizeName(name or self.ActiveConfig or "default")
 self.ActiveConfig = name
 
-local data = {
-    Library = Axis.Name,
-    Version = Axis.Version,
-    Theme = self.ThemeName or "Axis",
-    Accent = toHex(self.Theme.Accent),
-    AutoSave = self.AutoSave == true,
-    Values = {}
-}
+    local data = {
+        Library = Axis.Name,
+        Version = Axis.Version,
+        Theme = self.ThemeName or "Axis",
+        Accent = toHex(self.Theme.Accent),
+        AutoSave = self.AutoSave == true,
+        ThemeColors = {},
+        Values = {}
+    }
 
-for flag, entry in pairs(self.Flags or {}) do
-    local value = self:_serializeControl(entry)
+    for token, color in pairs(self.Theme or {}) do
+        if typeof(color) == "Color3" then
+            data.ThemeColors[token] = toHex(color)
+        end
+    end
+
+    for flag, entry in pairs(self.Flags or {}) do
+        local value = self:_serializeControl(entry)
 
     if value ~= nil then
         data.Values[flag] = value
@@ -1459,9 +1511,12 @@ end
 self.ActiveConfig = name
 self._loadingConfig = true
 
-if data.Theme then
-    self:SetTheme(data.Theme, true)
-end
+    if type(data.ThemeColors) == "table" then
+        data.ThemeColors.Name = data.Theme or "Custom"
+        self:SetTheme(data.ThemeColors, true)
+    elseif data.Theme then
+        self:SetTheme(data.Theme, true)
+    end
 
 if data.Accent then
     self:SetAccent(data.Accent)
@@ -3112,20 +3167,57 @@ local themeDropdown = themeGroup:Dropdown({
     end
 })
 
-themeGroup:ColorPicker({
-    Name = "Accent Color",
-    Default = self.Theme.Accent,
-    Save = false,
+    themeGroup:ColorPicker({
+        Name = "Accent Color",
+        Default = self.Theme.Accent,
+        Save = false,
     Callback = function(color)
         self:SetAccent(color)
         status:SetText("Accent: " .. toHex(color))
         self:_queueAutoSave()
-    end
-})
+        end
+    })
 
-local configGroup = tab:Group({
-    Name = config.ConfigGroupName or "Configuration"
-})
+    local customGroup = tab:Group({
+        Name = config.CustomGroupName or "Custom Theme"
+    })
+
+    local customStatus = customGroup:Label({
+        Text = "Custom theme editor"
+    })
+
+    local function customPicker(name, token)
+        customGroup:ColorPicker({
+            Name = name,
+            Default = self.Theme[token],
+            Save = false,
+            Callback = function(color)
+                self:SetThemeColor(token, color)
+                customStatus:SetText(name .. ": " .. toHex(color))
+            end
+        })
+    end
+
+    customPicker("Background", "Background")
+    customPicker("Panels", "Panel")
+    customPicker("Surface", "Surface")
+    customPicker("Text", "Text")
+    customPicker("Border", "Border")
+
+    customGroup:Button({
+        Name = "Reset Theme",
+        Text = "Reset",
+        Callback = function()
+            self:SetTheme("Axis")
+            themeDropdown:SetValue("Axis", true)
+            status:SetText("Theme: Axis")
+            customStatus:SetText("Theme reset")
+        end
+    })
+
+    local configGroup = tab:Group({
+        Name = config.ConfigGroupName or "Configuration"
+    })
 
 local configStatus = configGroup:Label({
     Text = "Config: " .. tostring(self.ActiveConfig or "default")
