@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.6"
+Axis.Version = "1.5.7"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -964,6 +964,7 @@ local targetPosition = keepCollapseEdgePosition(self.Root, self.Root.Position, s
 if minimized then
     targetPosition = clampToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize)
 else
+    targetPosition = UDim2.fromOffset(targetPosition.X.Offset, targetPosition.Y.Offset + (self.MinimizedHeight or 58))
     targetPosition = clampDropDownToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize, self.MinimizedHeight or 58)
 end
 
