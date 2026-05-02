@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.3"
+Axis.Version = "1.5.4"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -444,6 +444,10 @@ return Vector2.new(
 )
 end
 
+local function offsetSizeToUDim2(size)
+return UDim2.fromOffset(math.floor(size.X + 0.5), math.floor(size.Y + 0.5))
+end
+
 local function getFitScale(size, margin)
 local viewport = getViewportSize()
 local offsetSize = getOffsetSize(size)
@@ -491,13 +495,6 @@ local function clampToViewport(frame, position, paddingAmount, sizeOverride)
 local viewport = getViewportSize()
 local size = sizeOverride and getOffsetSize(sizeOverride, frame.AbsoluteSize) or frame.AbsoluteSize
 paddingAmount = paddingAmount or 8
-
-if sizeOverride then
-    local scale = frame:FindFirstChildOfClass("UIScale")
-    if scale then
-        size = Vector2.new(size.X * scale.Scale, size.Y * scale.Scale)
-    end
-end
 
 local x = position.X.Scale * viewport.X + position.X.Offset
 local y = position.Y.Scale * viewport.Y + position.Y.Offset
@@ -3469,6 +3466,11 @@ local theme, themeName = resolveThemeSpec(config.Theme or config.ThemeName, "Axi
 local isMobile = config.Mobile == true or UserInputService.TouchEnabled
 local defaultSize = isMobile and UDim2.fromOffset(580, 420) or UDim2.fromOffset(620, 438)
 local windowSize = (isMobile and config.MobileSize) or config.Size or defaultSize
+local windowOffsetSize = getOffsetSize(windowSize, isMobile and Vector2.new(580, 420) or Vector2.new(620, 438))
+local collapsedWidth = tonumber(config.MinimizedWidth or config.CollapsedWidth or config.MinimizeWidth)
+    or math.min(windowOffsetSize.X, isMobile and 330 or 340)
+collapsedWidth = math.clamp(collapsedWidth, 220, windowOffsetSize.X)
+local minimizedSize = config.MinimizedSize or offsetSizeToUDim2(Vector2.new(collapsedWidth, config.MinimizedHeight or 58))
 local tabWidth = config.TabWidth or (isMobile and 128 or 144)
 
 local title = config.Title or config.Name or Axis.Name
@@ -3784,7 +3786,7 @@ local window = setmetatable({
     Visible = true,
     Minimized = false,
     FullSize = windowSize,
-    MinimizedSize = config.MinimizedSize or UDim2.new(windowSize.X.Scale, windowSize.X.Offset, 0, config.MinimizedHeight or 58),
+    MinimizedSize = minimizedSize,
     MinimizeButton = minimize,
     MinimizeStroke = minimizeStroke,
     MinimizeGlow = minimizeGlow,
@@ -3989,6 +3991,7 @@ end))
 
     root.Visible = false
     window:_updateResponsiveScale(false)
+    root.Position = clampToViewport(root, root.Position, window.IsMobile and 12 or 16, window.FullSize)
 
     local camera = Workspace.CurrentCamera
     if camera then
