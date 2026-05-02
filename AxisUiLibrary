@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.2"
+Axis.Version = "1.5.3"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -490,14 +490,14 @@ end
 local function clampToViewport(frame, position, paddingAmount, sizeOverride)
 local viewport = getViewportSize()
 local size = sizeOverride and getOffsetSize(sizeOverride, frame.AbsoluteSize) or frame.AbsoluteSize
-local scale = 1
 paddingAmount = paddingAmount or 8
 
-if frame:FindFirstChildOfClass("UIScale") then
-    scale = frame:FindFirstChildOfClass("UIScale").Scale
+if sizeOverride then
+    local scale = frame:FindFirstChildOfClass("UIScale")
+    if scale then
+        size = Vector2.new(size.X * scale.Scale, size.Y * scale.Scale)
+    end
 end
-
-size = Vector2.new(size.X * scale, size.Y * scale)
 
 local x = position.X.Scale * viewport.X + position.X.Offset
 local y = position.Y.Scale * viewport.Y + position.Y.Offset
@@ -926,14 +926,8 @@ local targetSize = minimized and self.MinimizedSize or (self.FullSize or self.Ro
 local targetPosition = keepTopPosition(self.Root.Position, self.Root.Size, targetSize)
 targetPosition = clampToViewport(self.Root, targetPosition, self.IsMobile and 12 or 16, targetSize)
 
-if not minimized then
-    if self.TabRail then
-        self.TabRail.Visible = true
-    end
-
-    if self.SelectedTab and self.SelectedTab.Page then
-        self.SelectedTab.Page.Visible = true
-    end
+if minimized then
+    self:_setBodyVisible(false)
 end
 
 tween(self.Root, {
@@ -943,21 +937,29 @@ tween(self.Root, {
 
 self:_refreshMinimizeVisual(false)
 
-task.delay(duration * 0.72, function()
-    if not self.Minimized then
-        return
-    end
-
-    if self.TabRail then
-        self.TabRail.Visible = false
-    end
-
-    for _, tab in ipairs(self.Tabs or {}) do
-        if tab.Page then
-            tab.Page.Visible = false
-        end
-    end
+task.delay(duration * 0.82, function()
+    self.Root.Position = clampToViewport(
+        self.Root,
+        self.Root.Position,
+        self.IsMobile and 12 or 16,
+        self.Minimized and self.MinimizedSize or self.FullSize
+    )
+    self:_setBodyVisible(not self.Minimized)
 end)
+end
+
+function WindowClass:_setBodyVisible(state)
+local visible = state and not self.Minimized
+
+if self.TabRail then
+    self.TabRail.Visible = visible
+end
+
+for _, tab in ipairs(self.Tabs or {}) do
+    if tab.Page then
+        tab.Page.Visible = visible and tab == self.SelectedTab
+    end
+end
 end
 
 function WindowClass:ToggleMinimized()
@@ -1879,7 +1881,7 @@ self.SelectedTab = tab
 
 for _, current in ipairs(self.Tabs) do
     local selected = current == tab
-    current.Page.Visible = selected
+    current.Page.Visible = selected and not self.Minimized
 
     tween(current.Button, {
         BackgroundTransparency = selected and 0 or 1,
