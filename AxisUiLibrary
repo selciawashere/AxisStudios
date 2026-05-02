@@ -1,8 +1,5 @@
 --[[
-Axis Studios Smooth UI Library
-Standalone Roblox Lua UI library with live dropdowns, multi-dropdowns,
-labels, decimal sliders, config saving, custom themes, notifications,
-dual color pickers, tabs, groups, and a custom logo asset slot.
+Axis Studios UI Library
 ]]
 
 local Players = game:GetService("Players")
