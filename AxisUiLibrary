@@ -7,6 +7,7 @@
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -27,7 +28,7 @@ TabClass.__index = TabClass
 local GroupClass = {}
 GroupClass.__index = GroupClass
 
-local DEFAULT_LOGO = "rbxassetid://95355489476446"
+local DEFAULT_LOGO = "rbxassetid://74230700853193"
 
 local DEFAULT_THEME = {
     Background = Color3.fromRGB(13, 15, 15),
@@ -413,6 +414,43 @@ local function getParent()
     return LocalPlayer:WaitForChild("PlayerGui")
 end
 
+local function getViewportSize()
+    local camera = Workspace.CurrentCamera
+
+    if camera then
+        return camera.ViewportSize
+    end
+
+    return Vector2.new(1280, 720)
+end
+
+local function getOffsetSize(size, fallback)
+    fallback = fallback or Vector2.new(620, 438)
+
+    if typeof(size) ~= "UDim2" then
+        return fallback
+    end
+
+    return Vector2.new(
+        size.X.Offset > 0 and size.X.Offset or fallback.X,
+        size.Y.Offset > 0 and size.Y.Offset or fallback.Y
+    )
+end
+
+local function getFitScale(size, margin)
+    local viewport = getViewportSize()
+    local offsetSize = getOffsetSize(size)
+    margin = margin or 32
+
+    local scale = math.min(
+        (viewport.X - margin) / math.max(offsetSize.X, 1),
+        (viewport.Y - margin) / math.max(offsetSize.Y, 1),
+        1
+    )
+
+    return math.clamp(scale, 0.55, 1)
+end
+
 local function lerpNumber(a, b, t)
     return a + (b - a) * t
 end
@@ -433,7 +471,21 @@ local function nearUDim2(a, b)
         and math.abs(a.Y.Offset - b.Y.Offset) < 0.35
 end
 
-local function makeDraggable(handle, frame, tracker)
+local function clampToViewport(frame, position, paddingAmount)
+    local viewport = getViewportSize()
+    local size = frame.AbsoluteSize
+    paddingAmount = paddingAmount or 8
+
+    local x = position.X.Scale * viewport.X + position.X.Offset
+    local y = position.Y.Scale * viewport.Y + position.Y.Offset
+
+    x = math.clamp(x, paddingAmount, math.max(paddingAmount, viewport.X - size.X - paddingAmount))
+    y = math.clamp(y, paddingAmount, math.max(paddingAmount, viewport.Y - size.Y - paddingAmount))
+
+    return UDim2.fromOffset(x, y)
+end
+
+local function makeDraggable(handle, frame, tracker, clampToScreen)
     local dragging = false
     local dragInput
     local dragStart
@@ -482,6 +534,10 @@ local function makeDraggable(handle, frame, tracker)
             startPosition.Y.Scale,
             startPosition.Y.Offset + delta.Y
         )
+
+        if clampToScreen then
+            targetPosition = clampToViewport(frame, targetPosition, 10)
+        end
     end))
 
     track(RunService.RenderStepped:Connect(function(dt)
@@ -577,12 +633,41 @@ function WindowClass:SetSubtitle(text)
     self.SubtitleLabel.Text = self.Subtitle
 end
 
+function WindowClass:_setScaledVisibilityScale(multiplier, duration)
+    tween(self.RootScale, {
+        Scale = (self.BaseScale or 1) * (multiplier or 1)
+    }, duration or 0.18)
+end
+
+function WindowClass:_updateResponsiveScale(animated)
+    if self.AutoScale == false then
+        self.BaseScale = 1
+    else
+        self.BaseScale = getFitScale(self.Root.Size, self.IsMobile and 22 or 36)
+    end
+
+    self:_setScaledVisibilityScale(self.Visible and 1 or 0.94, animated and 0.18 or 0.01)
+end
+
 function WindowClass:SetVisible(state)
     self.Visible = state and true or false
-    tween(self.RootScale, { Scale = self.Visible and 1 or 0.94 }, 0.16)
+    self:_setScaledVisibilityScale(self.Visible and 1 or 0.94, 0.16)
     tween(self.Root, {
         BackgroundTransparency = self.Visible and 0 or 1
     }, 0.16)
+
+    if self.ToggleButton then
+        tween(self.ToggleButton, {
+            BackgroundColor3 = self.Visible and self.Theme.AccentSoft or self.Theme.Panel
+        }, 0.18)
+    end
+
+    if self.ToggleIcon then
+        tween(self.ToggleIcon, {
+            ImageColor3 = self.Visible and self.Theme.Accent or self.Theme.Text,
+            Rotation = self.Visible and 0 or -8
+        }, 0.18)
+    end
 
     task.delay(self.Visible and 0 or 0.16, function()
         self.Root.Visible = self.Visible
@@ -661,6 +746,14 @@ function WindowClass:SetTheme(theme, noSave)
 
     self.Root.BackgroundColor3 = nextTheme.Background
     self:SetAccent(nextTheme.Accent)
+
+    if self.ToggleButton then
+        self.ToggleButton.BackgroundColor3 = self.Visible and nextTheme.AccentSoft or nextTheme.Panel
+    end
+
+    if self.ToggleIcon then
+        self.ToggleIcon.ImageColor3 = self.Visible and nextTheme.Accent or nextTheme.Text
+    end
 
     if not noSave then
         self:_queueAutoSave()
@@ -973,6 +1066,8 @@ function WindowClass:CreateTab(config)
         Parent = button
     })
 
+    local contentX = (self.TabWidth or 144) + 24
+
     local page = create("ScrollingFrame", {
         Name = tab.Name .. "Page",
         BackgroundTransparency = 1,
@@ -981,8 +1076,8 @@ function WindowClass:CreateTab(config)
         CanvasSize = UDim2.fromOffset(0, 0),
         ScrollBarThickness = 3,
         ScrollBarImageColor3 = self.Theme.Border,
-        Position = UDim2.fromOffset(168, 68),
-        Size = UDim2.new(1, -184, 1, -84),
+        Position = UDim2.fromOffset(contentX, 68),
+        Size = UDim2.new(1, -(contentX + 16), 1, -84),
         Visible = false,
         Parent = self.Root
     })
@@ -2568,6 +2663,10 @@ function Axis:CreateWindow(config)
     config = type(config) == "table" and config or {}
 
     local theme, themeName = resolveThemeSpec(config.Theme or config.ThemeName, "Axis")
+    local isMobile = config.Mobile == true or UserInputService.TouchEnabled
+    local defaultSize = isMobile and UDim2.fromOffset(580, 420) or UDim2.fromOffset(620, 438)
+    local windowSize = (isMobile and config.MobileSize) or config.Size or defaultSize
+    local tabWidth = config.TabWidth or (isMobile and 128 or 144)
 
     local title = config.Title or config.Name or Axis.Name
     local subtitle = config.Subtitle or config.SubTitle or "Smooth UI Library"
@@ -2597,7 +2696,7 @@ function Axis:CreateWindow(config)
         BorderSizePixel = 0,
         ClipsDescendants = true,
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = config.Size or UDim2.fromOffset(620, 438),
+        Size = windowSize,
         Parent = gui
     }, {
         corner(20),
@@ -2703,7 +2802,7 @@ function Axis:CreateWindow(config)
         BackgroundColor3 = theme.Panel,
         BorderSizePixel = 0,
         Position = UDim2.fromOffset(12, 66),
-        Size = UDim2.new(0, 144, 1, -78),
+        Size = UDim2.new(0, tabWidth, 1, -78),
         Parent = root
     }, {
         corner(16),
@@ -2744,12 +2843,93 @@ function Axis:CreateWindow(config)
         Flags = {},
         PendingValues = {},
         Visible = true,
+        IsMobile = isMobile,
+        AutoScale = config.AutoScale ~= false,
+        TabWidth = tabWidth,
         ToggleKey = resolveKeyCode(config.ToggleKey or config.Keybind, Enum.KeyCode.RightControl),
         ConfigFolder = config.ConfigFolder or "AxisStudios",
         ConfigId = config.ConfigId or title,
         ActiveConfig = sanitizeName(config.ConfigName or config.DefaultConfig or "default"),
         AutoSave = config.AutoSave == true
     }, WindowClass)
+
+    if config.FloatingToggle ~= false then
+        local toggleSize = config.ToggleButtonSize or (isMobile and 56 or 50)
+        local toggleButton = create("TextButton", {
+            Name = "AxisFloatingToggle",
+            AutoButtonColor = false,
+            BackgroundColor3 = theme.AccentSoft,
+            BorderSizePixel = 0,
+            Position = config.ToggleButtonPosition or UDim2.fromOffset(18, isMobile and 86 or 96),
+            Size = UDim2.fromOffset(toggleSize, toggleSize),
+            Text = "",
+            ZIndex = 1000,
+            Parent = gui
+        }, {
+            corner(math.floor(toggleSize * 0.34)),
+            stroke(theme.Border, 0.28, 1)
+        })
+
+        local toggleIcon = create("ImageLabel", {
+            Name = "Icon",
+            BackgroundTransparency = 1,
+            Image = asset(config.ToggleIcon or config.Icon or config.Logo or config.AssetId or DEFAULT_LOGO),
+            ImageColor3 = theme.Accent,
+            Position = UDim2.fromOffset(9, 9),
+            Size = UDim2.new(1, -18, 1, -18),
+            ZIndex = 1001,
+            Parent = toggleButton
+        })
+
+        local pressed = false
+        local moved = false
+        local pressPosition = nil
+
+        toggleButton.InputBegan:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+
+            pressed = true
+            moved = false
+            pressPosition = input.Position
+        end)
+
+        toggleButton.InputChanged:Connect(function(input)
+            if not pressed or not pressPosition then
+                return
+            end
+
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+
+            if (input.Position - pressPosition).Magnitude > 8 then
+                moved = true
+            end
+        end)
+
+        toggleButton.InputEnded:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+                return
+            end
+
+            local shouldToggle = pressed and not moved
+            pressed = false
+            moved = false
+            pressPosition = nil
+
+            if shouldToggle then
+                window:Toggle()
+            end
+        end)
+
+        makeDraggable(toggleButton, toggleButton, window, true)
+        addScalePress(toggleButton, toggleButton)
+
+        window.ToggleButton = toggleButton
+        window.ToggleIcon = toggleIcon
+    end
 
     makeDraggable(topBar, root, window)
     addScalePress(close, close)
@@ -2782,10 +2962,23 @@ function Axis:CreateWindow(config)
         end
     end))
 
+    window:_updateResponsiveScale(false)
+
+    local camera = Workspace.CurrentCamera
+    if camera then
+        window:_track(camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            window:_updateResponsiveScale(true)
+
+            if window.ToggleButton then
+                window.ToggleButton.Position = clampToViewport(window.ToggleButton, window.ToggleButton.Position, 10)
+            end
+        end))
+    end
+
     root.BackgroundTransparency = 1
-    rootScale.Scale = 0.96
+    rootScale.Scale = (window.BaseScale or 1) * 0.96
     tween(root, { BackgroundTransparency = 0 }, 0.22)
-    tween(rootScale, { Scale = 1 }, 0.22)
+    window:_setScaledVisibilityScale(1, 0.22)
 
     if config.AutoLoad == true then
         window:LoadConfig(window.ActiveConfig)
