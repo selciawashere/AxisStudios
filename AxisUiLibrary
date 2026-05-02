@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.2.0"
+Axis.Version = "1.3.0"
 
 local WindowClass = {}
 WindowClass.__index = WindowClass
@@ -994,6 +994,223 @@ end)
 return overlay
 end
 
+function WindowClass:_notificationColor(kind)
+kind = tostring(kind or "Info"):lower()
+
+if kind == "success" then
+    return self.Theme.Accent
+elseif kind == "warning" then
+    return self.Theme.AccentWarm
+elseif kind == "error" then
+    return Color3.fromRGB(255, 115, 115)
+end
+
+return Color3.fromRGB(118, 210, 255)
+end
+
+function WindowClass:_ensureNotificationContainer()
+if self.NotificationContainer and self.NotificationContainer.Parent then
+    return self.NotificationContainer
+end
+
+local width = self.IsMobile and 300 or 330
+local container = create("Frame", {
+    Name = "AxisNotifications",
+    AnchorPoint = self.IsMobile and Vector2.new(0.5, 0) or Vector2.new(1, 0),
+    BackgroundTransparency = 1,
+    Position = self.IsMobile and UDim2.new(0.5, 0, 0, 82) or UDim2.new(1, -18, 0, 18),
+    Size = UDim2.fromOffset(width, 360),
+    ZIndex = 1800,
+    Parent = self.Gui
+})
+
+create("UIListLayout", {
+    FillDirection = Enum.FillDirection.Vertical,
+    HorizontalAlignment = Enum.HorizontalAlignment.Right,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 10),
+    Parent = container
+})
+
+self.NotificationContainer = container
+return container
+end
+
+function WindowClass:Notify(config)
+config = type(config) == "table" and config or {
+    Title = "Notification",
+    Description = tostring(config or "")
+}
+
+local container = self:_ensureNotificationContainer()
+local title = tostring(config.Title or config.Name or "Notification")
+local description = tostring(config.Description or config.Desc or config.Text or config.Message or "")
+local duration = tonumber(config.Duration or config.Lifetime or 3.2) or 3.2
+local accent = resolveColor(config.Color, self:_notificationColor(config.Type))
+local height = description ~= "" and 78 or 58
+
+local holder = create("Frame", {
+    BackgroundTransparency = 1,
+    ClipsDescendants = true,
+    Size = UDim2.new(1, 0, 0, 0),
+    ZIndex = 1801,
+    Parent = container
+})
+
+local card = create("Frame", {
+    BackgroundColor3 = self.Theme.Panel,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    Position = UDim2.fromOffset(self.IsMobile and 0 or 22, 0),
+    Size = UDim2.new(1, 0, 0, height),
+    ZIndex = 1802,
+    Parent = holder
+}, {
+    corner(15),
+    padding(14, 10, 14, 10)
+})
+
+local cardStroke = stroke(self.Theme.Border, 1, 1)
+cardStroke.Parent = card
+
+local stripe = create("Frame", {
+    BackgroundColor3 = accent,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.fromOffset(0, 0),
+    Size = UDim2.new(0, 4, 1, 0),
+    ZIndex = 1803,
+    Parent = card
+}, {
+    corner(8)
+})
+
+local titleLabel = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    Text = title,
+    TextColor3 = self.Theme.Text,
+    TextSize = 13,
+    TextTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Position = UDim2.fromOffset(12, 8),
+    Size = UDim2.new(1, -24, 0, 20),
+    ZIndex = 1804,
+    Parent = card
+})
+
+local descLabel = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamMedium,
+    Text = description,
+    TextColor3 = self.Theme.Muted,
+    TextSize = 12,
+    TextTransparency = 1,
+    TextWrapped = true,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    Position = UDim2.fromOffset(12, 30),
+    Size = UDim2.new(1, -24, 0, description ~= "" and 28 or 0),
+    Visible = description ~= "",
+    ZIndex = 1804,
+    Parent = card
+})
+
+local progressBack = create("Frame", {
+    BackgroundColor3 = self.Theme.Surface,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    AnchorPoint = Vector2.new(0, 1),
+    Position = UDim2.new(0, 12, 1, -9),
+    Size = UDim2.new(1, -24, 0, 3),
+    ZIndex = 1804,
+    Parent = card
+}, {
+    corner(4)
+})
+
+local progress = create("Frame", {
+    BackgroundColor3 = accent,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Size = UDim2.fromScale(1, 1),
+    ZIndex = 1805,
+    Parent = progressBack
+}, {
+    corner(4)
+})
+
+local scale = create("UIScale", {
+    Scale = 0.96,
+    Parent = card
+})
+
+local closed = false
+local function closeNotification()
+    if closed then
+        return
+    end
+
+    closed = true
+    tween(card, {
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(self.IsMobile and 0 or 18, 0)
+    }, 0.26)
+    tween(cardStroke, { Transparency = 1 }, 0.22)
+    tween(stripe, { BackgroundTransparency = 1 }, 0.18)
+    tween(titleLabel, { TextTransparency = 1 }, 0.18)
+    tween(descLabel, { TextTransparency = 1 }, 0.18)
+    tween(progressBack, { BackgroundTransparency = 1 }, 0.16)
+    tween(progress, { BackgroundTransparency = 1 }, 0.16)
+    tween(scale, { Scale = 0.96 }, 0.24)
+
+    task.delay(0.18, function()
+        tween(holder, { Size = UDim2.new(1, 0, 0, 0) }, 0.26)
+    end)
+
+    task.delay(0.46, function()
+        if holder then
+            holder:Destroy()
+        end
+    end)
+end
+
+tween(holder, { Size = UDim2.new(1, 0, 0, height) }, 0.26)
+task.defer(function()
+    tween(card, {
+        BackgroundTransparency = 0,
+        Position = UDim2.fromOffset(0, 0)
+    }, 0.34)
+    tween(cardStroke, { Transparency = 0.35 }, 0.3)
+    tween(stripe, { BackgroundTransparency = 0 }, 0.28)
+    tween(titleLabel, { TextTransparency = 0 }, 0.24)
+    tween(descLabel, { TextTransparency = 0 }, 0.24)
+    tween(progressBack, { BackgroundTransparency = 0 }, 0.26)
+    tween(progress, {
+        BackgroundTransparency = 0,
+        Size = UDim2.fromScale(0, 1)
+    }, duration, Enum.EasingStyle.Linear)
+    tween(scale, { Scale = 1 }, 0.34)
+end)
+
+card.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        closeNotification()
+    end
+end)
+
+task.delay(duration, closeNotification)
+
+return {
+    Instance = holder,
+    Close = closeNotification
+}
+end
+
+WindowClass.Notification = WindowClass.Notify
+
 function WindowClass:Destroy()
 for _, connection in ipairs(self.Connections) do
     pcall(function()
@@ -1622,7 +1839,27 @@ return {
     SetText = function(_, text)
         action.Text = tostring(text or "")
     end
-}
+    }
+end
+
+function GroupClass:Notification(config)
+config = type(config) == "table" and config or {}
+
+return self:Button({
+    Name = config.Name or config.Title or "Notification",
+    Text = config.Text or "Show",
+    Callback = function()
+        self.Window:Notify({
+            Title = config.NotificationTitle or config.Title or config.Name or "Notification",
+            Description = config.Description or config.Desc or config.Message or "Axis notification",
+            Type = config.Type or "Info",
+            Duration = config.Duration or 3.2,
+            Color = config.Color
+        })
+
+        safeCall(config.Callback)
+    end
+})
 end
 
 function GroupClass:Toggle(config)
