@@ -17,7 +17,7 @@ local LocalPlayer = Players.LocalPlayer
 local Axis = {}
 Axis.__index = Axis
 Axis.Name = "Axis Studios"
-Axis.Version = "1.5.5"
+Axis.Version = "1.5.6"
 
 Axis.NotificationColors = {
     Info = Color3.fromRGB(118, 210, 255),
@@ -545,7 +545,6 @@ local y = position.Y.Scale * viewport.Y + position.Y.Offset
 local minX = paddingAmount + (size.X * anchor.X)
 local maxX = viewport.X - paddingAmount - (size.X * (1 - anchor.X))
 local top = y - (size.Y * anchor.Y)
-local maxTop = viewport.Y - paddingAmount - headerHeight
 
 if minX > maxX then
     x = viewport.X * 0.5
@@ -553,7 +552,7 @@ else
     x = math.clamp(x, minX, maxX)
 end
 
-top = math.clamp(top, paddingAmount, math.max(paddingAmount, maxTop))
+top = math.max(top, paddingAmount)
 y = top + (size.Y * anchor.Y)
 
 return UDim2.fromOffset(x, y)
