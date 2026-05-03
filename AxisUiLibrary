@@ -3944,7 +3944,7 @@ local titleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 10),
-    Size = UDim2.new(1, -268, 0, 24),
+    Size = UDim2.new(1, -174, 0, 24),
     Parent = topBar
 })
 
@@ -3958,28 +3958,8 @@ local subtitleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 32),
-    Size = UDim2.new(1, -268, 0, 18),
+    Size = UDim2.new(1, -174, 0, 18),
     Parent = topBar
-})
-
-local dragHandle = create("TextButton", {
-    Name = "DragHandle",
-    BackgroundColor3 = theme.Surface,
-    BackgroundTransparency = 0.08,
-    BorderSizePixel = 0,
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBold,
-    Text = "Drag",
-    TextColor3 = theme.Muted,
-    TextSize = 12,
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -94, 0, 12),
-    Size = UDim2.fromOffset(34, 34),
-    ZIndex = 8,
-    Parent = topBar
-}, {
-    corner(13),
-    stroke(theme.Border, 0.52, 1)
 })
 
 local minimizeAccent = resolveColor(config.MinimizeColor or config.MinimizeAccent or config.MinimizeHoverColor, theme.Accent)
@@ -4292,7 +4272,10 @@ end
 markInteractiveForDrag(minimize, true)
 markInteractiveForDrag(close, true)
 markInteractiveForDrag(tabRail, true)
-makeDraggable(dragHandle, root, window, true)
+
+makeDraggable(config.FullWindowDrag == false and topBar or root, root, window, true, {
+    IgnoreInteractive = true
+})
 addScalePress(minimize, minimize)
 addScalePress(close, close)
 
