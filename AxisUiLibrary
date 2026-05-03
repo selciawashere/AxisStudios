@@ -675,6 +675,10 @@ local function beginDrag(input)
         return
     end
 
+    if options.IgnoreInteractive ~= false and input.Position and dragShouldBeBlocked(frame, input.Position) then
+        return
+    end
+
     if dragging then
         return
     end
