@@ -565,13 +565,102 @@ return position.X >= topLeft.X
     and position.Y <= topLeft.Y + size.Y
 end
 
-local function makeDraggable(handle, frame, tracker, clampToScreen)
+local function markInteractiveForDrag(instance, includeDescendants)
+if not instance then
+    return
+end
+
+pcall(function()
+    instance:SetAttribute("AxisInteractiveForDrag", true)
+end)
+
+if includeDescendants then
+    for _, child in ipairs(instance:GetDescendants()) do
+        pcall(function()
+            child:SetAttribute("AxisInteractiveForDrag", true)
+        end)
+    end
+end
+end
+
+local function isGuiObjectVisible(instance)
+while instance and instance:IsA("GuiObject") do
+    if instance.Visible == false then
+        return false
+    end
+    instance = instance.Parent
+end
+
+return true
+end
+
+local function isInteractiveDragInstance(instance, boundary)
+while instance and instance ~= boundary do
+    local ok, marked = pcall(function()
+        return instance:GetAttribute("AxisInteractiveForDrag")
+    end)
+
+    if ok and marked == true then
+        return true
+    end
+
+    instance = instance.Parent
+end
+
+return false
+end
+
+local function isScrollingFrameScrollbarHit(instance, position)
+if not instance:IsA("ScrollingFrame") or not isGuiObjectVisible(instance) then
+    return false
+end
+
+local thickness = tonumber(instance.ScrollBarThickness) or 0
+if thickness <= 0 or not pointInFrame(instance, position) then
+    return false
+end
+
+local topLeft = instance.AbsolutePosition
+local size = instance.AbsoluteSize
+local hasVerticalScrollbar = instance.CanvasSize.Y.Offset > instance.AbsoluteWindowSize.Y + 1
+local hasHorizontalScrollbar = instance.CanvasSize.X.Offset > instance.AbsoluteWindowSize.X + 1
+
+if hasVerticalScrollbar and position.X >= (topLeft.X + size.X - thickness) then
+    return true
+end
+
+if hasHorizontalScrollbar and position.Y >= (topLeft.Y + size.Y - thickness) then
+    return true
+end
+
+return false
+end
+
+local function dragShouldBeBlocked(frame, position)
+for _, descendant in ipairs(frame:GetDescendants()) do
+    if isScrollingFrameScrollbarHit(descendant, position) then
+        return true
+    end
+
+    if descendant:IsA("GuiObject")
+        and isGuiObjectVisible(descendant)
+        and isInteractiveDragInstance(descendant, frame)
+        and pointInFrame(descendant, position) then
+        return true
+    end
+end
+
+return false
+end
+
+local function makeDraggable(handle, frame, tracker, clampToScreen, options)
 local dragging = false
 local dragInput
 local dragStart
 local startPosition
 local targetPosition = frame.Position
 local settling = false
+options = options or {}
 
 local function track(connection)
     if tracker and tracker._track then
@@ -612,6 +701,9 @@ if handle == frame then
         end
 
         if pointInFrame(frame, input.Position) then
+            if options.IgnoreInteractive ~= false and dragShouldBeBlocked(frame, input.Position) then
+                return
+            end
             beginDrag(input)
         end
     end))
@@ -2253,6 +2345,7 @@ function GroupClass:Button(config)
 config = type(config) == "table" and config or { Name = tostring(config or "Button") }
 
 local row = self:_row(50)
+markInteractiveForDrag(row, true)
 local button = create("TextButton", {
     BackgroundTransparency = 1,
     AutoButtonColor = false,
@@ -2349,6 +2442,7 @@ config = type(config) == "table" and config or {}
 
 local value = config.Default == true or config.Value == true
 local row = self:_row(54)
+markInteractiveForDrag(row, true)
 
 local button = create("TextButton", {
     BackgroundTransparency = 1,
@@ -2515,6 +2609,7 @@ local value = tonumber(config.Default or config.Value or min) or min
 local dragging = false
 
 local row = self:_row(76)
+markInteractiveForDrag(row, true)
 
 local title = create("TextLabel", {
     BackgroundTransparency = 1,
@@ -2684,6 +2779,7 @@ for _, option in ipairs(config.Options or config.Values or config.List or {}) do
 end
 
 local row = self:_row(collapsedHeight)
+markInteractiveForDrag(row, true)
 row.ClipsDescendants = true
 
 create("TextLabel", {
@@ -3111,6 +3207,7 @@ config = type(config) == "table" and config or {}
 local currentKey = resolveKeyCode(config.Default or config.Value or config.Key, Enum.KeyCode.RightShift)
 local listening = false
 local row = self:_row(58)
+markInteractiveForDrag(row, true)
 
 local button = create("TextButton", {
     BackgroundTransparency = 1,
@@ -3264,6 +3361,7 @@ do
 end
 
 local row = self:_row(collapsedHeight)
+markInteractiveForDrag(row, true)
 row.ClipsDescendants = true
 
 create("TextLabel", {
@@ -4005,10 +4103,14 @@ local closeLineB = create("Frame", {
     corner(2)
 })
 
-local tabRail = create("Frame", {
+local tabRail = create("ScrollingFrame", {
     Name = "TabRail",
     BackgroundColor3 = theme.Panel,
     BorderSizePixel = 0,
+    CanvasSize = UDim2.fromOffset(0, 0),
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = theme.Border,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
     Position = UDim2.fromOffset(12, 66),
     Size = UDim2.new(0, tabWidth, 1, -78),
     Parent = root
@@ -4026,12 +4128,14 @@ local tabList = create("Frame", {
     Parent = tabRail
 })
 
-create("UIListLayout", {
+local tabLayout = create("UIListLayout", {
     FillDirection = Enum.FillDirection.Vertical,
     SortOrder = Enum.SortOrder.LayoutOrder,
     Padding = UDim.new(0, 6),
     Parent = tabList
 })
+
+bindCanvas(tabRail, tabLayout)
 
 local window = setmetatable({
     Gui = gui,
@@ -4146,14 +4250,20 @@ if config.FloatingToggle ~= false then
         end
     end)
 
-    makeDraggable(toggleButton, toggleButton, window, true)
+makeDraggable(toggleButton, toggleButton, window, true)
     addScalePress(toggleButton, toggleButton)
 
     window.ToggleButton = toggleButton
     window.ToggleIcon = toggleIcon
 end
 
-makeDraggable(config.FullWindowDrag == false and topBar or root, root, window, true)
+markInteractiveForDrag(minimize, true)
+markInteractiveForDrag(close, true)
+markInteractiveForDrag(tabRail, true)
+
+makeDraggable(config.FullWindowDrag == false and topBar or root, root, window, true, {
+    IgnoreInteractive = true
+})
 addScalePress(minimize, minimize)
 addScalePress(close, close)
 
