@@ -675,10 +675,6 @@ local function beginDrag(input)
         return
     end
 
-    if tracker and (tracker._interactiveDragInput == input or tracker._interactiveDragLock == true) then
-        return
-    end
-
     if options.IgnoreInteractive ~= false and input.Position and dragShouldBeBlocked(frame, input.Position) then
         return
     end
@@ -2730,18 +2726,6 @@ local function setFromInput(input)
     render(true)
 end
 
-local function captureSliderInteraction(input)
-    self.Window._interactiveDragLock = true
-    self.Window._interactiveDragInput = input
-end
-
-local function releaseSliderInteraction(input)
-    if input == nil or self.Window._interactiveDragInput == input then
-        self.Window._interactiveDragInput = nil
-        self.Window._interactiveDragLock = false
-    end
-end
-
 function object:SetValue(newValue, noCallback)
     value = snap(tonumber(newValue) or min)
     render(not noCallback)
@@ -2760,14 +2744,12 @@ track.InputBegan:Connect(function(input)
         return
     end
 
-    captureSliderInteraction(input)
     dragging = true
     setFromInput(input)
 end)
 
 knob.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        captureSliderInteraction(input)
         dragging = true
     end
 end)
@@ -2785,7 +2767,6 @@ end))
 self.Window:_track(UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
-        releaseSliderInteraction(input)
     end
 end))
 
@@ -3963,7 +3944,7 @@ local titleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 10),
-    Size = UDim2.new(1, -174, 0, 24),
+    Size = UDim2.new(1, -268, 0, 24),
     Parent = topBar
 })
 
@@ -3977,8 +3958,28 @@ local subtitleLabel = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
     Position = UDim2.fromOffset(60, 32),
-    Size = UDim2.new(1, -174, 0, 18),
+    Size = UDim2.new(1, -268, 0, 18),
     Parent = topBar
+})
+
+local dragHandle = create("TextButton", {
+    Name = "DragHandle",
+    BackgroundColor3 = theme.Surface,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBold,
+    Text = "Drag",
+    TextColor3 = theme.Muted,
+    TextSize = 12,
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -94, 0, 12),
+    Size = UDim2.fromOffset(34, 34),
+    ZIndex = 8,
+    Parent = topBar
+}, {
+    corner(13),
+    stroke(theme.Border, 0.52, 1)
 })
 
 local minimizeAccent = resolveColor(config.MinimizeColor or config.MinimizeAccent or config.MinimizeHoverColor, theme.Accent)
@@ -4291,9 +4292,7 @@ end
 markInteractiveForDrag(minimize, true)
 markInteractiveForDrag(close, true)
 markInteractiveForDrag(tabRail, true)
-makeDraggable(config.FullWindowDrag == false and topBar or root, root, window, true, {
-    IgnoreInteractive = true
-})
+makeDraggable(dragHandle, root, window, true)
 addScalePress(minimize, minimize)
 addScalePress(close, close)
 
