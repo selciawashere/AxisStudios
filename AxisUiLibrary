@@ -2642,13 +2642,9 @@ local valueLabel = create("TextLabel", {
 
 self.Window:_accent(valueLabel, "TextColor3")
 
-local track = create("TextButton", {
+local track = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(48, 51, 46),
     BorderSizePixel = 0,
-    AutoButtonColor = false,
-    Active = true,
-    Text = "",
-    TextTransparency = 1,
     Position = UDim2.new(0, 14, 0, 44),
     Size = UDim2.new(1, -28, 0, 8),
     Parent = row
@@ -2667,16 +2663,12 @@ local fill = create("Frame", {
 
 self.Window:_accent(fill, "BackgroundColor3")
 
-local knob = create("TextButton", {
+local knob = create("Frame", {
     AnchorPoint = Vector2.new(0.5, 0.5),
-    Active = true,
-    AutoButtonColor = false,
     BackgroundColor3 = self.Window.Theme.Text,
     BorderSizePixel = 0,
     Position = UDim2.fromScale(0, 0.5),
     Size = UDim2.fromOffset(16, 16),
-    Text = "",
-    TextTransparency = 1,
     Parent = track
 }, {
     corner(16),
